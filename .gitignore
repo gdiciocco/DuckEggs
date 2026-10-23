@@ -1,0 +1,11 @@
+/build/
+/out/
+/.vs/
+/.vscode/
+*.user
+*.suo
+*.VC.db
+*.zip
+*.sqlite3
+status.json
+status.json.tmp-*
