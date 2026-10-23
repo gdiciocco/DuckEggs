@@ -1,0 +1,23 @@
+Schiva dependency sourcing provenance
+Downloaded: 2026-10-23 (UTC)
+
+SQLite
+Version: 3.54.1 (stable; release 2026-10-16)
+Origin: https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip
+Official release listing: https://www.sqlite.org/download.html
+License: Public domain; https://sqlite.org/copyright.html
+Published archive SHA3-256: 92281c86e2957f9b9305890f9ac04204caa7b677cc868dc326d942689df28e30 (verified)
+
+nlohmann/json
+Version: 3.12.0 (stable release tag)
+Header origin: https://raw.githubusercontent.com/nlohmann/json/v3.12.0/single_include/nlohmann/json.hpp
+MIT license origin: https://raw.githubusercontent.com/nlohmann/json/v3.12.0/LICENSE.MIT
+Release page: https://github.com/nlohmann/json/releases/tag/v3.12.0
+
+SHA256 (staged files)
+722eb0d454dcbf9d73ff5efde4577bfac60b77b2431a5f97230d8855e2694794  LICENSE.SQLite.txt
+46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603  LICENSE.nlohmann-json.MIT
+aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63  json.hpp
+0c657666d819f261cc4007526ad57e1669de9949df7a8ea847aa284a2bf0ee52  sqlite3.c
+d6c84557261893439b341d2e6c35187ae3ea24fbfd843ad94616f72d89242b8c  sqlite3.h
+48963abfefb41ac329ef9d706acb5eadba952a99a748285c9ded6b5e0942721b  sqlite3ext.h
