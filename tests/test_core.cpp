@@ -111,10 +111,171 @@ schiva::Decision trigger(schiva::Controller& controller,
     return controller.tick(0.04, current);
 }
 
-std::filesystem::path fixture(const std::string& name) {
-    return std::filesystem::absolute(std::filesystem::path(__FILE__))
-               .parent_path() /
-           "fixtures" / name;
+void execute_sql(sqlite3* database, const char* sql) {
+    char* message = nullptr;
+    const int result =
+        sqlite3_exec(database, sql, nullptr, nullptr, &message);
+    if (result == SQLITE_OK) {
+        return;
+    }
+    const std::string detail =
+        message == nullptr ? sqlite3_errmsg(database) : message;
+    sqlite3_free(message);
+    throw std::runtime_error("synthetic schema setup failed: " + detail);
+}
+
+void bind_text(sqlite3_stmt* statement, int index,
+               const std::string& value) {
+    if (sqlite3_bind_text(statement, index, value.c_str(),
+                          static_cast<int>(value.size()),
+                          SQLITE_TRANSIENT) != SQLITE_OK) {
+        throw std::runtime_error("synthetic schema text bind failed");
+    }
+}
+
+void create_synthetic_schema1_fixture(
+    const std::filesystem::path& path,
+    const schiva::Json& model_state) {
+    sqlite3* database = nullptr;
+    if (sqlite3_open(path.string().c_str(), &database) != SQLITE_OK) {
+        if (database != nullptr) {
+            sqlite3_close(database);
+        }
+        throw std::runtime_error("unable to create synthetic schema fixture");
+    }
+    try {
+        execute_sql(
+            database,
+            "PRAGMA user_version = 1;"
+            "CREATE TABLE profiles ("
+            "profile_key TEXT PRIMARY KEY,"
+            "app_id TEXT NOT NULL,"
+            "role TEXT NOT NULL,"
+            "layout_bin TEXT NOT NULL,"
+            "short_map TEXT NOT NULL,"
+            "long_map TEXT NOT NULL,"
+            "manual_map TEXT NOT NULL);"
+            "CREATE TABLE decision_records ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "profile_key TEXT NOT NULL,"
+            "features_json TEXT NOT NULL,"
+            "action TEXT NOT NULL,"
+            "reward REAL NOT NULL);"
+            "CREATE TABLE model_state ("
+            "id INTEGER PRIMARY KEY CHECK (id = 1),"
+            "state_json TEXT NOT NULL,"
+            "updates INTEGER NOT NULL);");
+
+        const struct {
+            const char* key;
+            const char* app;
+            const char* role;
+            const char* layout;
+            const char* short_map;
+            const char* long_map;
+            const char* manual_map;
+        } profiles[] = {
+            {"editor.exe|editor|maximized", "editor.exe", "editor",
+             "maximized", R"({"4":1.25,"9":0.5})",
+             R"({"4":2.5,"12":1.0})", R"({"9":0.75})"},
+            {"browser.exe|document|snapped-left", "browser.exe",
+             "document", "snapped-left", R"({"2":3.0})",
+             R"({"2":1.5})", "{}"},
+            {"terminal.exe|terminal|free-8x6-normal", "terminal.exe",
+             "terminal", "free-8x6-normal", R"({"20":0.25})",
+             R"({"20":0.5})", R"({"20":1.0})"}};
+        sqlite3_stmt* profile_insert = nullptr;
+        const char* profile_sql =
+            "INSERT INTO profiles "
+            "(profile_key, app_id, role, layout_bin, short_map, "
+            "long_map, manual_map) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        if (sqlite3_prepare_v2(database, profile_sql, -1, &profile_insert,
+                               nullptr) != SQLITE_OK) {
+            throw std::runtime_error(
+                "unable to prepare synthetic profiles");
+        }
+        for (const auto& profile : profiles) {
+            bind_text(profile_insert, 1, profile.key);
+            bind_text(profile_insert, 2, profile.app);
+            bind_text(profile_insert, 3, profile.role);
+            bind_text(profile_insert, 4, profile.layout);
+            bind_text(profile_insert, 5, profile.short_map);
+            bind_text(profile_insert, 6, profile.long_map);
+            bind_text(profile_insert, 7, profile.manual_map);
+            if (sqlite3_step(profile_insert) != SQLITE_DONE) {
+                sqlite3_finalize(profile_insert);
+                throw std::runtime_error(
+                    "unable to insert synthetic profile");
+            }
+            sqlite3_reset(profile_insert);
+            sqlite3_clear_bindings(profile_insert);
+        }
+        sqlite3_finalize(profile_insert);
+
+        sqlite3_stmt* decision_insert = nullptr;
+        const char* decision_sql =
+            "INSERT INTO decision_records "
+            "(profile_key, features_json, action, reward) "
+            "VALUES (?, ?, ?, ?)";
+        if (sqlite3_prepare_v2(database, decision_sql, -1,
+                               &decision_insert, nullptr) != SQLITE_OK) {
+            throw std::runtime_error(
+                "unable to prepare synthetic decisions");
+        }
+        const struct {
+            const char* key;
+            const char* features;
+            const char* action;
+            double reward;
+        } decisions[] = {
+            {"editor.exe|editor|maximized", "[1,0.5,0.25,0,0,0,0,0,0,0,0,0]",
+             "anchor-03", 0.1},
+            {"editor.exe|editor|maximized", "[1,0.25,0.5,0,0,0,0,0,0,0,0,0]",
+             "anchor-07", -0.2},
+            {"browser.exe|document|snapped-left",
+             "[1,-0.5,0.25,0,0,0,0,0,0,0,0,0]", "anchor-11", 0.3},
+            {"terminal.exe|terminal|free-8x6-normal",
+             "[1,0,0.5,0,0,0,0,0,0,0,0,0]", "anchor-19", 0.0}};
+        for (const auto& decision : decisions) {
+            bind_text(decision_insert, 1, decision.key);
+            bind_text(decision_insert, 2, decision.features);
+            bind_text(decision_insert, 3, decision.action);
+            if (sqlite3_bind_double(decision_insert, 4,
+                                    decision.reward) != SQLITE_OK ||
+                sqlite3_step(decision_insert) != SQLITE_DONE) {
+                sqlite3_finalize(decision_insert);
+                throw std::runtime_error(
+                    "unable to insert synthetic decision");
+            }
+            sqlite3_reset(decision_insert);
+            sqlite3_clear_bindings(decision_insert);
+        }
+        sqlite3_finalize(decision_insert);
+
+        sqlite3_stmt* model_insert = nullptr;
+        if (sqlite3_prepare_v2(
+                database,
+                "INSERT INTO model_state (id, state_json, updates) "
+                "VALUES (1, ?, ?)", -1, &model_insert,
+                nullptr) != SQLITE_OK) {
+            throw std::runtime_error(
+                "unable to prepare synthetic model state");
+        }
+        const std::string state_json = model_state.dump();
+        bind_text(model_insert, 1, state_json);
+        sqlite3_bind_int(
+            model_insert, 2, model_state.at("updates").get<int>());
+        if (sqlite3_step(model_insert) != SQLITE_DONE) {
+            sqlite3_finalize(model_insert);
+            throw std::runtime_error(
+                "unable to insert synthetic model state");
+        }
+        sqlite3_finalize(model_insert);
+        sqlite3_close(database);
+    } catch (...) {
+        sqlite3_close(database);
+        throw;
+    }
 }
 
 void test_domain_and_linucb() {
@@ -242,29 +403,60 @@ void test_storage_schema_and_fixture() {
     sqlite3_finalize(statement);
     sqlite3_close(connection);
 
-    const auto copied = temp.file("backup.sqlite3");
-    std::filesystem::copy_file(
-        fixture("learning-schema1-backup.sqlite3"), copied);
-    schiva::LearningStore store(copied);
+    schiva::detail::LinUCBModel synthetic_model(12, 0.35);
+    const std::vector<std::pair<std::vector<double>, double>> updates = {
+        {{1.0, 0.5, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+         0.1},
+        {{1.0, 0.25, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+         -0.2},
+        {{1.0, -0.5, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+         0.3},
+        {{1.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+         0.0}};
+    for (const auto& update : updates) {
+        synthetic_model.update(update.first, update.second);
+    }
+    const auto synthetic = temp.file("synthetic-schema1.sqlite3");
+    create_synthetic_schema1_fixture(synthetic, synthetic_model.state());
+    schiva::LearningStore store(synthetic);
     const schiva::Json stats = store.stats();
     CHECK(stats["schema_version"] == 1);
-    CHECK(stats["profiles"] == 15);
-    CHECK(stats["decision_records"] == 46);
+    CHECK(stats["profiles"] == 3);
+    CHECK(stats["decision_records"] == 4);
     const auto profiles = schiva::detail::StoreAccess::list_profiles(store);
-    CHECK(profiles.size() == 15);
+    CHECK(profiles.size() == 3);
+    CHECK(profiles.size() == 3 &&
+          profiles[0].profile_key == "browser.exe|document|snapped-left");
+    const auto editor = schiva::detail::StoreAccess::peek_profile(
+        store, "editor.exe|editor|maximized");
+    CHECK(editor.has_value());
+    CHECK(editor.has_value() && editor->short_map["4"] == 1.25);
+    CHECK(editor.has_value() && editor->long_map["4"] == 2.5);
+    CHECK(editor.has_value() && editor->manual_map["9"] == 0.75);
     const auto model_json =
         schiva::detail::StoreAccess::load_model(store);
     CHECK(model_json.has_value());
     CHECK(model_json.has_value() &&
-          model_json->at("updates").get<int>() == 46);
+          model_json->at("dimension") == 12);
+    CHECK(model_json.has_value() &&
+          model_json->at("updates").get<int>() == 4);
+    if (model_json.has_value()) {
+        const auto restored =
+            schiva::detail::LinUCBModel::from_state(*model_json);
+        const std::vector<double> query{
+            1.0, 0.25, 0.5, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        CHECK_NEAR(restored.predict(query),
+                   synthetic_model.predict(query), 1e-12);
+    }
     schiva::Controller controller(store);
-    CHECK(controller.status()["learning_count"] == 46);
+    CHECK(controller.status()["learning_count"] == 4);
     controller.close();
     store.close();
 
-    schiva::LearningStore reopened(copied);
-    CHECK(reopened.stats()["profiles"] == 15);
-    CHECK(reopened.stats()["decision_records"] == 46);
+    schiva::LearningStore reopened(synthetic);
+    CHECK(reopened.stats()["profiles"] == 3);
+    CHECK(reopened.stats()["decision_records"] == 4);
     reopened.close();
 }
 
@@ -336,6 +528,7 @@ void test_smooth_motion_and_clearance() {
         CHECK(decision.state == "moving");
         CHECK(decision.move_to.has_value());
         CHECK(decision.recommendation.has_value());
+        const auto target = decision.recommendation;
         CHECK(controller.status()["motion_active"] == true);
         schiva::Rect rect = kPip;
         double now = 0.04;
@@ -356,11 +549,12 @@ void test_smooth_motion_and_clearance() {
         }
         CHECK(steps > 1);
         CHECK(maximum_step < 80.0);
-        CHECK(decision.recommendation.has_value());
-        if (decision.recommendation.has_value()) {
+        CHECK(decision.state == "cooldown");
+        CHECK(!decision.move_to.has_value());
+        if (target.has_value()) {
             CHECK(schiva::detail::vacated_fraction(
-                      kPip, *decision.recommendation) >= 0.65);
-            CHECK(rect == *decision.recommendation);
+                      kPip, *target) >= 0.65);
+            CHECK(rect == *target);
         }
         CHECK(controller.status()["learning_count"] == 0);
         controller.close();
@@ -390,10 +584,19 @@ void test_holds_stalls_manual_and_observe_only() {
         CHECK(resumed.state == "moving");
         CHECK(resumed.move_to.has_value());
 
-        const schiva::Rect corrected{140, 100, 460, 280};
-        controller.tick(0.35, observation(corrected, {510, 250}, true));
+        const schiva::Rect interpolation_collision{140, 100, 460, 280};
+        controller.tick(
+            0.35,
+            observation(interpolation_collision, {510, 250}, true));
+        const schiva::Decision collision_release = controller.tick(
+            0.36, observation(interpolation_collision));
+        CHECK(collision_release.state == "moving_stalled");
+        CHECK(controller.status()["learning_count"] == 0);
+
+        const schiva::Rect corrected{500, 400, 820, 580};
+        controller.tick(0.40, observation(corrected, {900, 700}, true));
         const schiva::Decision manual =
-            controller.tick(0.36, observation(corrected));
+            controller.tick(0.41, observation(corrected, {900, 700}));
         CHECK(manual.state == "manual_correction");
         CHECK(controller.status()["learning_count"] == 1);
         controller.close();
@@ -523,6 +726,14 @@ void test_visual_helper_and_insights() {
         CHECK(snapshot["layers"]["activity"].size() == 336);
         CHECK(snapshot["layers"]["manual"].size() == 336);
         CHECK(snapshot["layers"]["placement"].size() == 336);
+        CHECK(snapshot["note"] ==
+              "Active profile. Usage and preference maps are learned data; "
+              "live visual risk covers only observable pixels. Placement is "
+              "a relative ranking for the entire PiP rectangle.");
+        const schiva::Json unknown = controller.insights("never-created");
+        CHECK(unknown["note"] ==
+              "The requested profile is not learned; no profile was "
+              "created.");
 
         bool wrong_thread_error = false;
         std::thread worker([&]() {
@@ -548,10 +759,14 @@ void test_visual_helper_and_insights() {
     {
         schiva::LearningStore cold_store(temp.file("cold.sqlite3"));
         schiva::Controller cold(cold_store);
-        cold.tick(0.0, observation());
         const schiva::Json cold_insights = cold.insights();
+        CHECK(cold_insights["note"] ==
+              "No learned app profiles are available; no profile was "
+              "created.");
+        cold.tick(0.0, observation());
+        const schiva::Json cold_after_tick = cold.insights();
         for (const auto& layer :
-             cold_insights["layers"].items()) {
+             cold_after_tick["layers"].items()) {
             CHECK(layer.value().size() == 336);
             CHECK(std::all_of(
                 layer.value().begin(), layer.value().end(),

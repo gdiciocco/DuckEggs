@@ -1097,8 +1097,8 @@ Json Controller::insights(
         if (!by_key.contains(*selected_key)) {
             selected_key.reset();
             selection_note =
-                "Il profilo richiesto non è appreso; non è stato creato "
-                "alcun profilo.";
+                "The requested profile is not learned; no profile was "
+                "created.";
         }
     }
     std::optional<Rect> recommendation;

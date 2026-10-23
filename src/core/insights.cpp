@@ -376,8 +376,8 @@ Json build_insights(
     if (!selected_profile.has_value() || !selected_key.has_value()) {
         const std::string note =
             selection_note.value_or(
-                "Nessun profilo appreso disponibile; non è stato creato "
-                "alcun profilo.");
+                "No learned app profiles are available; no profile was "
+                "created.");
         const auto empty_layer = optional_layer_json(
             std::vector<std::optional<double>>(map_size, std::nullopt));
         Json layers = {{"activity", empty_layer},
@@ -453,16 +453,14 @@ Json build_insights(
         pip_height, is_active);
     const std::string note =
         is_active
-            ? "Profilo attivo. Le mappe di utilizzo e preferenza sono dati "
-              "appresi; il rischio visivo dal vivo riguarda solo i pixel "
-              "osservabili. Il posizionamento è una classifica relativa per "
-              "l'intero rettangolo del PiP."
-            : "Profilo inattivo: geometria ricostruita assumendo l'intera "
-              "area di lavoro come rettangolo dell'app. Sono usati il modello "
-              "globale condiviso, l'area di lavoro e le dimensioni attuali del "
-              "PiP; il rischio visivo dal vivo non è disponibile. Il "
-              "posizionamento è una stima relativa per l'intero rettangolo, "
-              "non una probabilità.";
+            ? "Active profile. Usage and preference maps are learned data; "
+              "live visual risk covers only observable pixels. Placement is "
+              "a relative ranking for the entire PiP rectangle."
+            : "Inactive profile: geometry was reconstructed by treating the "
+              "whole work area as the app rectangle. The shared global model, "
+              "work area, and current PiP dimensions are used; live visual "
+              "risk is unavailable. Placement is a relative estimate for the "
+              "whole rectangle, not a probability.";
     const auto count = decision_counts.find(*selected_key);
     Json layers = {{"activity", optional_layer_json(activity_layer)},
                    {"manual", optional_layer_json(manual_layer)},

@@ -703,6 +703,15 @@ def main() -> int:
         controller_inputs.append(observe_input)
         controller_expected.append(observe_expected)
 
+    if any(
+        not isinstance(item.get("observe_only"), bool)
+        for item in controller_inputs
+    ):
+        raise RuntimeError(
+            "every integrated controller fixture needs an explicit "
+            "observe_only flag"
+        )
+
     output = {
         "metadata": {
             "source": str(args.reference.resolve()),

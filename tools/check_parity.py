@@ -6,10 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+
+_TRANSLATED_NOTE_PATH = re.compile(
+    r"expected\.controllers\[\d+\]\.insights\.note"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,6 +39,11 @@ def compare(
     differences: list[str],
 ) -> None:
     if len(differences) >= 1000:
+        return
+    # Python remains the immutable Italian reference. DuckEggs deliberately
+    # translates only this human-readable insight while comparing every map,
+    # ranking, state, and decision field.
+    if _TRANSLATED_NOTE_PATH.fullmatch(path):
         return
     if isinstance(expected, bool) or isinstance(actual, bool):
         if expected is not actual:
