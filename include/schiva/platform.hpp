@@ -49,6 +49,24 @@ struct MotionSize {
     int height{};
 };
 
+// Compares a motion lease's expected geometry with a freshly observed
+// rectangle before a native move is applied.
+inline bool motion_rect_matches(
+    const Rect& expected,
+    const Rect& observed,
+    int tolerance = 2) {
+    const int limit = tolerance < 0 ? 0 : tolerance;
+    const auto within = [limit](int first, int second) {
+        const int difference = first >= second ? first - second
+                                               : second - first;
+        return difference <= limit;
+    };
+    return within(expected.left, observed.left) &&
+           within(expected.top, observed.top) &&
+           within(expected.right, observed.right) &&
+           within(expected.bottom, observed.bottom);
+}
+
 // Native-side duplicate of the small core safety predicate. It avoids a
 // dependency on unagreed core internals while preserving the same corridor
 // test used by the controller.

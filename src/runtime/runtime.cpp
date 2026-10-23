@@ -32,6 +32,73 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
+class DeadlineWaiter {
+public:
+    DeadlineWaiter() = default;
+
+    ~DeadlineWaiter() {
+#ifdef _WIN32
+        if (timer_ != nullptr) {
+            CloseHandle(timer_);
+        }
+#endif
+    }
+
+    DeadlineWaiter(const DeadlineWaiter&) = delete;
+    DeadlineWaiter& operator=(const DeadlineWaiter&) = delete;
+
+    void wait_for(double seconds) {
+        const double bounded = std::clamp(
+            seconds, 0.0, kControlWaitSeconds);
+        if (bounded <= 0.0) {
+            return;
+        }
+#ifdef _WIN32
+        initialize_timer();
+        if (timer_ != nullptr) {
+            LARGE_INTEGER due{};
+            due.QuadPart = -std::max<LONGLONG>(
+                1, static_cast<LONGLONG>(bounded * 10000000.0));
+            if (SetWaitableTimer(
+                    timer_, &due, 0, nullptr, nullptr, FALSE)) {
+                WaitForSingleObjectEx(timer_, INFINITE, FALSE);
+                return;
+            }
+        }
+#endif
+        std::this_thread::sleep_for(
+            std::chrono::duration<double>(bounded));
+    }
+
+private:
+#ifdef _WIN32
+    void initialize_timer() {
+        if (timer_initialized_) {
+            return;
+        }
+        timer_initialized_ = true;
+        // A private high-resolution timer avoids changing process-wide timer
+        // resolution. Fall back to a regular waitable timer, then sleep_for.
+        constexpr DWORD kHighResolutionTimer = 0x00000002;
+        timer_ = CreateWaitableTimerExW(
+            nullptr,
+            nullptr,
+            kHighResolutionTimer,
+            TIMER_ALL_ACCESS);
+        if (timer_ == nullptr) {
+            timer_ = CreateWaitableTimerExW(
+                nullptr, nullptr, 0, TIMER_ALL_ACCESS);
+        }
+        if (timer_ == nullptr) {
+            timer_ = CreateWaitableTimerW(nullptr, FALSE, nullptr);
+        }
+    }
+
+    HANDLE timer_{};
+    bool timer_initialized_{};
+#endif
+};
+
 double now_seconds() {
     return std::chrono::duration<double>(
                Clock::now().time_since_epoch())
@@ -496,7 +563,8 @@ StatusFile::StatusFile(std::filesystem::path data_dir)
 Json StatusFile::read() const {
     std::ifstream stream(path_, std::ios::binary);
     if (!stream) {
-        throw PlatformError("status is not available yet; start Schiva once");
+        throw PlatformError(
+            "status is not available yet; start DuckEggs once");
     }
     Json result;
     try {
@@ -594,7 +662,7 @@ public:
               {"learning_count", 0},
               {"visual_available", false},
               {"last_error", nullptr}}),
-          insights_({
+          insights_snapshot_({
               {"data", nullptr},
               {"error", nullptr},
               {"requested_profile", nullptr},
@@ -608,7 +676,7 @@ public:
         try {
             start();
         } catch (const std::exception& exception) {
-            std::cerr << "Schiva Adattivo C++: "
+            std::cerr << "DuckEggs: "
                       << safe_error(exception.what()) << '\n';
             shutdown();
             return 2;
@@ -619,7 +687,7 @@ public:
             running_ui = run_platform_ui(*owner_);
             if (!running_ui) {
                 std::cerr
-                    << "Schiva Adattivo C++: the control panel could not "
+                    << "DuckEggs: the control panel could not "
                        "start; continuing without it\n";
             }
         }
@@ -690,21 +758,28 @@ private:
     enum class Control { Pause, Quit };
 
     void start() {
-        if (!options_.start_paused && python_reference_active()) {
+        if (!options_.start_paused && uses_platform_backend() &&
+            python_reference_active()) {
             throw PlatformError(
                 "resume blocked: the Python Schiva instance is still running");
         }
-        signals_ = create_runtime_signals();
+        signals_ = options_.signals_factory
+            ? options_.signals_factory()
+            : create_runtime_signals();
+        if (signals_ == nullptr) {
+            throw PlatformError(
+                "the runtime signal factory returned no guard");
+        }
         if (signals_->already_running()) {
             throw PlatformError(
-                "another Schiva Adattivo C++ instance is already running");
+                "another DuckEggs instance is already running");
         }
         worker_ = std::thread([this] { worker_main(); });
         std::unique_lock lock(ready_mutex_);
         if (!ready_condition_.wait_for(
                 lock,
                 std::chrono::duration<double>(kStartupTimeoutSeconds),
-                [this] { return ready_; })) {
+                [this] { return ready_.load(); })) {
             quit_.store(true);
             if (signals_ != nullptr) {
                 signals_->sign_stop();
@@ -729,8 +804,14 @@ private:
         const double started = now_seconds();
         bool failed = false;
         try {
-            backend_ = create_backend();
-            if (!options_.start_paused) {
+            backend_ = options_.backend_factory
+                ? options_.backend_factory()
+                : create_backend();
+            if (backend_ == nullptr) {
+                throw PlatformError(
+                    "the native backend factory returned no backend");
+            }
+            if (!options_.start_paused && uses_platform_backend()) {
                 if (backend_->python_instance_active()) {
                     throw PlatformError(
                         "resume blocked: the Python Schiva instance is still "
@@ -799,7 +880,7 @@ private:
             failed_status["last_error"] = error;
             publish(failed_status);
             if (ready_.load()) {
-                std::cerr << "Schiva Adattivo C++: " << error << '\n';
+                std::cerr << "DuckEggs: " << error << '\n';
             } else {
                 std::lock_guard lock(ready_mutex_);
                 startup_error_ = error;
@@ -939,7 +1020,7 @@ private:
             publish_insights(
                 profile_key,
                 std::nullopt,
-                "Impossibile aggiornare le mappe (" +
+                "Could not refresh learning maps (" +
                     json_error(exception) + ").");
         }
     }
@@ -973,9 +1054,13 @@ private:
             if (remaining <= 0.0) {
                 return;
             }
-            std::this_thread::sleep_for(std::chrono::duration<double>(
-                std::min(remaining, kControlWaitSeconds)));
+            deadline_waiter_.wait_for(
+                std::min(remaining, kControlWaitSeconds));
         }
+    }
+
+    bool uses_platform_backend() const {
+        return !options_.backend_factory;
     }
 
     void shutdown() {
@@ -1015,6 +1100,7 @@ private:
     std::mutex control_mutex_;
     std::condition_variable control_condition_;
     std::queue<Control> controls_;
+    DeadlineWaiter deadline_waiter_;
 
     mutable std::mutex snapshot_mutex_;
     Json snapshot_;

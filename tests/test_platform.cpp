@@ -128,7 +128,31 @@ void test_geometry_helpers() {
     CHECK(!schiva::point_near_rect({20, 20}, bounds, 20));
 }
 
+void test_motion_geometry_guard() {
+    const schiva::Rect expected{600, 200, 1000, 425};
+    int apply_count = 0;
+
+    // Simulate a manual drag between observation and apply. The stale
+    // expected rectangle must prevent the injected apply from running.
+    const schiva::Rect manual_observation = expected.moved_to(650, 230);
+    if (schiva::motion_rect_matches(expected, manual_observation)) {
+        ++apply_count;
+    }
+    CHECK(apply_count == 0);
+
+    const schiva::Rect refreshed_observation = expected;
+    if (schiva::motion_rect_matches(expected, refreshed_observation)) {
+        ++apply_count;
+    }
+    CHECK(apply_count == 1);
+
+    const schiva::Rect applied = expected.moved_to(40, 40);
+    CHECK(schiva::motion_rect_matches(applied, applied));
+    CHECK(!schiva::motion_rect_matches(expected, applied));
+}
+
 void test_scheduler_and_status() {
+    CHECK(schiva::kVersion == "0.4.0-preview.1");
     CHECK(std::abs(schiva::target_period(true, false) - 1.0 / 120.0) <
           1.0e-12);
     CHECK(std::abs(schiva::target_period(false, false) - 1.0 / 60.0) <
@@ -245,6 +269,114 @@ void test_capture_mailbox() {
     const auto error = failing.capture_error(3);
     CHECK(error.has_value());
     CHECK(error->find("synthetic capture denial") != std::string::npos);
+}
+
+void test_capture_waits_and_bounded_close() {
+    std::atomic<int> calls{0};
+    schiva::VisualCaptureWorker worker(
+        [&calls](const schiva::Rect&, const std::vector<schiva::Rect>&) {
+            ++calls;
+            return test_frame(60);
+        });
+    CHECK(worker.request(1, {0, 0, 100, 100}, {}));
+    CHECK(worker.wait_for_result(1, 1.0).has_value());
+
+    const int validity_before_pause =
+        worker.metrics()["validity"].get<int>();
+    worker.pause();
+    schiva::Json paused_metrics;
+    for (int attempt = 0; attempt < 500; ++attempt) {
+        paused_metrics = worker.metrics();
+        if (paused_metrics["waiting_for_work"].get<bool>() &&
+            paused_metrics["validity"].get<int>() ==
+                validity_before_pause + 1) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(paused_metrics["waiting_for_work"].get<bool>());
+    CHECK(paused_metrics["validity"].get<int>() ==
+          validity_before_pause + 1);
+    const std::uint64_t paused_wakes =
+        paused_metrics["condition_wakes"].get<std::uint64_t>();
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    const auto still_paused = worker.metrics();
+    CHECK(still_paused["waiting_for_work"].get<bool>());
+    CHECK(still_paused["condition_wakes"].get<std::uint64_t>() ==
+          paused_wakes);
+    CHECK(calls.load() == 1);
+
+    worker.resume();
+    worker.set_suppressed(true);
+    const int suppressed_validity =
+        still_paused["validity"].get<int>() + 1;
+    schiva::Json suppressed_metrics;
+    for (int attempt = 0; attempt < 500; ++attempt) {
+        suppressed_metrics = worker.metrics();
+        if (suppressed_metrics["waiting_for_work"].get<bool>() &&
+            suppressed_metrics["validity"].get<int>() ==
+                suppressed_validity) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    const std::uint64_t suppressed_wakes =
+        suppressed_metrics["condition_wakes"].get<std::uint64_t>();
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    const auto still_suppressed = worker.metrics();
+    CHECK(still_suppressed["waiting_for_work"].get<bool>());
+    CHECK(still_suppressed["condition_wakes"].get<std::uint64_t>() ==
+          suppressed_wakes);
+    CHECK(calls.load() == 1);
+    worker.close();
+    const auto clean_close = worker.metrics();
+    CHECK(clean_close["thread_finished"].get<bool>());
+    CHECK(!clean_close["close_timed_out"].get<bool>());
+    CHECK(!clean_close["thread_detached"].get<bool>());
+
+    std::atomic<bool> started{false};
+    std::atomic<bool> release{false};
+    schiva::VisualCaptureWorker stuck(
+        [&started, &release](
+            const schiva::Rect&,
+            const std::vector<schiva::Rect>&) {
+            started.store(true);
+            while (!release.load()) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(1));
+            }
+            return test_frame(70);
+        },
+        0.5,
+        0.5,
+        0.25,
+        0.05);
+    CHECK(stuck.request(2, {0, 0, 100, 100}, {}));
+    for (int attempt = 0; attempt < 500 && !started.load(); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(started.load());
+    const auto close_started = std::chrono::steady_clock::now();
+    stuck.close();
+    const double close_elapsed =
+        std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - close_started)
+            .count();
+    CHECK(close_elapsed >= 0.025);
+    CHECK(close_elapsed < 1.0);
+    const auto timed_out = stuck.metrics();
+    CHECK(timed_out["close_timed_out"].get<bool>());
+    CHECK(timed_out["thread_detached"].get<bool>());
+    release.store(true);
+    bool finished = false;
+    for (int attempt = 0; attempt < 1000; ++attempt) {
+        if (stuck.metrics()["thread_finished"].get<bool>()) {
+            finished = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(finished);
 }
 
 void test_heatmap_helpers() {
@@ -394,8 +526,10 @@ void test_python_import() {
 int main() {
     test_title_and_window_identity();
     test_geometry_helpers();
+    test_motion_geometry_guard();
     test_scheduler_and_status();
     test_capture_mailbox();
+    test_capture_waits_and_bounded_close();
     test_heatmap_helpers();
     test_python_import();
     if (failures != 0) {

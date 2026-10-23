@@ -28,9 +28,9 @@ constexpr wchar_t kChromeClass[] = L"Chrome_WidgetWin_1";
 constexpr wchar_t kPythonMutexName[] =
     L"Local\\SchivaAdaptive.Instance.v1";
 constexpr wchar_t kCppMutexName[] =
-    L"Local\\SchivaAdaptiveCpp.Instance.v1";
+    L"Local\\DuckEggs.Instance.v1";
 constexpr wchar_t kCppStopEventName[] =
-    L"Local\\SchivaAdaptiveCpp.Stop.v1";
+    L"Local\\DuckEggs.Stop.v1";
 constexpr int kCaptureWidth = 64;
 constexpr int kCaptureHeight = 36;
 constexpr double kIdentityScanSeconds = 0.75;
@@ -38,7 +38,6 @@ constexpr double kMotionScanSeconds = 0.20;
 constexpr double kVisualNearPipPixels = 160.0;
 constexpr int kInnerMargin = 20;
 constexpr int kSafetyMargin = 28;
-constexpr int kMotionRectTolerance = 2;
 constexpr DWORD kMaskProcessQuery = 0x1000;
 constexpr UINT kMoveFlags =
     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
@@ -124,6 +123,22 @@ bool same_point(Point first, Point second) {
 
 bool valid_creation_time(std::uint64_t value) {
     return value != 0;
+}
+
+bool python_mutex_present() {
+    SetLastError(ERROR_SUCCESS);
+    HANDLE mutex = OpenMutexW(SYNCHRONIZE, FALSE, kPythonMutexName);
+    if (mutex == nullptr) {
+        const DWORD error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND) {
+            return false;
+        }
+        throw PlatformError(
+            "could not verify the Python instance guard (Win32 " +
+            std::to_string(error) + ")");
+    }
+    CloseHandle(mutex);
+    return true;
 }
 
 class DurationMetrics {
@@ -527,12 +542,7 @@ public:
     }
 
     bool python_instance_active() const override {
-        HANDLE mutex = OpenMutexW(SYNCHRONIZE, FALSE, kPythonMutexName);
-        if (mutex == nullptr) {
-            return false;
-        }
-        CloseHandle(mutex);
-        return true;
+        return python_mutex_present();
     }
 
     Observation observe(double now, bool include_visual) override {
@@ -747,20 +757,13 @@ public:
         if (!motion_lease_.has_value() && !begin_motion(pip_id)) {
             return false;
         }
+        const Rect expected_rect = motion_lease_->rect;
         const auto validated = read_motion_identity();
         if (!validated.has_value() || !motion_lease_.has_value()) {
             return false;
         }
         const Rect& current = validated->rect;
-        const Rect& leased = motion_lease_->rect;
-        if (std::abs(current.left - leased.left) >
-                kMotionRectTolerance ||
-            std::abs(current.top - leased.top) >
-                kMotionRectTolerance ||
-            std::abs(current.right - leased.right) >
-                kMotionRectTolerance ||
-            std::abs(current.bottom - leased.bottom) >
-                kMotionRectTolerance) {
+        if (!motion_rect_matches(expected_rect, current)) {
             fail_motion("manual PiP movement cancelled the motion lease");
             return false;
         }
@@ -1317,7 +1320,6 @@ private:
         }
         WindowRecord current = lease;
         current.rect = *rect;
-        motion_lease_ = current;
         return current;
     }
 
@@ -1463,12 +1465,7 @@ private:
 };
 
 bool python_reference_active_windows() {
-    HANDLE mutex = OpenMutexW(SYNCHRONIZE, FALSE, kPythonMutexName);
-    if (mutex == nullptr) {
-        return false;
-    }
-    CloseHandle(mutex);
-    return true;
+    return python_mutex_present();
 }
 
 }  // namespace

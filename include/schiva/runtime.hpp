@@ -19,10 +19,14 @@ inline constexpr double kControlWaitSeconds = 0.012;
 inline constexpr std::size_t kTimingSamples = 240;
 inline constexpr double kStatusIntervalSeconds = 1.0;
 inline constexpr double kStartupTimeoutSeconds = 5.0;
-inline constexpr std::string_view kVersion = "0.4.0-cpp.1";
+inline constexpr std::string_view kVersion = "0.4.0-preview.1";
 
 double target_period(bool motion_active, bool paused);
 double next_deadline(double previous_deadline, double work_finished, double period);
+
+using BackendFactory = std::function<std::unique_ptr<Backend>()>;
+using RuntimeSignalsFactory =
+    std::function<std::unique_ptr<RuntimeSignals>()>;
 
 struct RuntimeOptions {
     std::filesystem::path data_dir;
@@ -32,6 +36,10 @@ struct RuntimeOptions {
     bool start_paused{true};
     bool resume{};
     std::optional<double> duration;
+    // Optional owner-thread factories for deterministic integration tests and
+    // benchmarks. Empty factories use the platform backend and signals.
+    BackendFactory backend_factory;
+    RuntimeSignalsFactory signals_factory;
 };
 
 class StatusFile {

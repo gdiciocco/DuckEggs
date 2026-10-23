@@ -58,6 +58,7 @@ public:
     void invalidate(int generation) {
         std::lock_guard lock(mutex_);
         generation_ = generation;
+        generation_initialized_ = true;
         ++validity_;
         pending_.reset();
         result_.reset();
@@ -91,7 +92,14 @@ public:
 
     bool request(int generation, Rect bounds, std::vector<Rect> masks) {
         std::lock_guard lock(mutex_);
-        if (closed_ || paused_ || suppressed_ || generation != generation_) {
+        if (closed_ || paused_ || suppressed_) {
+            return false;
+        }
+        if (!generation_initialized_) {
+            generation_ = generation;
+            generation_initialized_ = true;
+        }
+        if (generation != generation_) {
             return false;
         }
         ++sequence_;
@@ -169,35 +177,56 @@ public:
         }
         return {
             {"capture_duration_ms", summary},
-            {"close_timeout_ms", close_timeout_ * 1000.0}};
+            {"close_timeout_ms", close_timeout_ * 1000.0},
+            {"waiting_for_work", waiting_for_work_},
+            {"condition_wakes", worker_wakes_},
+            {"validity", validity_},
+            {"thread_finished", thread_finished_},
+            {"close_timed_out", close_timed_out_},
+            {"thread_detached", thread_detached_}};
     }
 
     void close() {
         std::thread thread;
-        {
-            std::lock_guard lock(mutex_);
-            if (closed_) {
-                return;
-            }
-            closed_ = true;
-            ++validity_;
-            pending_.reset();
-            result_.reset();
-            condition_.notify_all();
-            if (thread_.joinable()) {
-                thread = std::move(thread_);
-            }
+        std::unique_lock lock(mutex_);
+        if (closed_) {
+            return;
         }
-        if (thread.joinable()) {
-            if (thread.get_id() == std::this_thread::get_id()) {
-                thread.detach();
-            } else {
-                // The capture thread owns a shared reference to this state.
-                // Detaching keeps shutdown bounded even if a native GDI call
-                // is stuck; the thread releases its state when that call
-                // eventually returns.
-                thread.detach();
-            }
+        closed_ = true;
+        ++validity_;
+        pending_.reset();
+        result_.reset();
+        condition_.notify_all();
+        if (!thread_.joinable()) {
+            return;
+        }
+        if (thread_.get_id() == std::this_thread::get_id()) {
+            thread = std::move(thread_);
+            thread_detached_ = true;
+            lock.unlock();
+            thread.detach();
+            return;
+        }
+
+        // The capture thread owns a shared reference to this state. Wait for a
+        // bounded interval so a completed callback is joined cleanly; detach
+        // only when a native callback is genuinely stuck. The detached thread
+        // keeps this state alive until the callback returns.
+        condition_.wait_for(
+            lock,
+            std::chrono::duration_cast<Clock::duration>(
+                std::chrono::duration<double>(close_timeout_)),
+            [this] { return thread_finished_; });
+        thread = std::move(thread_);
+        if (!thread_finished_) {
+            close_timed_out_ = true;
+            thread_detached_ = true;
+        }
+        lock.unlock();
+        if (close_timed_out_) {
+            thread.detach();
+        } else {
+            thread.join();
         }
     }
 
@@ -207,15 +236,17 @@ private:
             Request request;
             {
                 std::unique_lock lock(mutex_);
-                condition_.wait(lock, [this] {
-                    return closed_ || pending_.has_value() ||
-                           paused_ || suppressed_;
-                });
-                if (closed_) {
-                    return;
+                while (!closed_ && !pending_.has_value()) {
+                    waiting_for_work_ = true;
+                    condition_.wait(lock, [this] {
+                        return closed_ || pending_.has_value();
+                    });
+                    ++worker_wakes_;
+                    waiting_for_work_ = false;
                 }
-                if (paused_ || suppressed_ || !pending_.has_value()) {
-                    continue;
+                if (closed_) {
+                    finish_thread();
+                    return;
                 }
                 const auto now = Clock::now();
                 if (seconds_since(pending_->queued_at) >
@@ -227,7 +258,11 @@ private:
                     std::chrono::duration_cast<Clock::duration>(
                         std::chrono::duration<double>(interval_));
                 if (now < earliest) {
-                    condition_.wait_until(lock, earliest);
+                    condition_.wait_until(lock, earliest, [this] {
+                        return closed_ || paused_ || suppressed_ ||
+                               !pending_.has_value();
+                    });
+                    ++worker_wakes_;
                     continue;
                 }
                 request = *pending_;
@@ -274,6 +309,11 @@ private:
         }
     }
 
+    void finish_thread() {
+        thread_finished_ = true;
+        condition_.notify_all();
+    }
+
     mutable std::mutex mutex_;
     std::condition_variable condition_;
     CaptureFunction capture_;
@@ -290,9 +330,15 @@ private:
     std::uint64_t sequence_{};
     std::uint64_t validity_{};
     int generation_{};
+    bool generation_initialized_{};
     bool paused_{};
     bool suppressed_{};
     bool closed_{};
+    bool waiting_for_work_{};
+    bool thread_finished_{};
+    bool close_timed_out_{};
+    bool thread_detached_{};
+    std::uint64_t worker_wakes_{};
     std::thread thread_;
 };
 
