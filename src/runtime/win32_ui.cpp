@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <dwmapi.h>
+#include <objidl.h>
 #include <gdiplus.h>
 #include <uxtheme.h>
 #include <windowsx.h>
@@ -400,12 +401,16 @@ void draw_egg_mark(
         bounds.Y + bounds.Height * 0.65F);
     egg.AddBezier(
         bounds.GetRight(),
+        bounds.Y + bounds.Height * 0.65F,
+        bounds.GetRight(),
         bounds.Y + bounds.Height * 0.88F,
         bounds.X + bounds.Width * 0.76F,
         bounds.GetBottom(),
         bounds.X + bounds.Width * 0.5F,
         bounds.GetBottom());
     egg.AddBezier(
+        bounds.X + bounds.Width * 0.5F,
+        bounds.GetBottom(),
         bounds.X + bounds.Width * 0.24F,
         bounds.GetBottom(),
         bounds.X,
@@ -413,6 +418,8 @@ void draw_egg_mark(
         bounds.X,
         bounds.Y + bounds.Height * 0.65F);
     egg.AddBezier(
+        bounds.X,
+        bounds.Y + bounds.Height * 0.65F,
         bounds.X,
         bounds.Y + bounds.Height * 0.42F,
         bounds.X + bounds.Width * 0.22F,
@@ -1251,6 +1258,10 @@ private:
         return static_cast<REAL>(px(logical));
     }
 
+    REAL rpx(REAL logical) const {
+        return logical * static_cast<REAL>(dpi_) / 96.0F;
+    }
+
     void create_fonts() {
         destroy_fonts();
         heading_font_ = make_font(dpi_, 29, FW_SEMIBOLD);
@@ -1672,7 +1683,7 @@ private:
         draw_egg_mark(
             graphics,
             RectF(rpx(28), rpx(24), egg_size, egg_size + rpx(4)),
-            rpx(1.6));
+            rpx(1.6F));
 
         if (data_.is_object() && areas.grid.Width > 2 &&
             areas.grid.Height > 2) {
@@ -1786,7 +1797,7 @@ private:
                             normalized_rect(
                                 *footprint, normalized_grid)),
                         color(kFootprintOutline),
-                        rpx(1.6));
+                        rpx(1.6F));
                 }
             }
         }
@@ -1818,7 +1829,7 @@ private:
                 graphics,
                 rectangle(normalized_rect(*normalized, grid_rect)),
                 color(outline.color),
-                rpx(1.8));
+                rpx(1.8F));
         }
         graphics.Flush();
     }
@@ -1837,7 +1848,11 @@ private:
             const int red = std::stoi(hex.substr(1, 2), nullptr, 16);
             const int green = std::stoi(hex.substr(3, 2), nullptr, 16);
             const int blue = std::stoi(hex.substr(5, 2), nullptr, 16);
-            SolidBrush brush(Color(255, red, green, blue));
+            SolidBrush brush(Color(
+                255,
+                static_cast<BYTE>(red),
+                static_cast<BYTE>(green),
+                static_cast<BYTE>(blue)));
             const REAL left =
                 areas.legend.X + areas.legend.Width * step / legend_steps;
             const REAL right =
@@ -1854,18 +1869,18 @@ private:
         SolidBrush unknown(
             Color(
                 255,
-                std::stoi(
+                static_cast<BYTE>(std::stoi(
                     std::string(heatmap::kUnknownColor).substr(1, 2),
                     nullptr,
-                    16),
-                std::stoi(
+                    16)),
+                static_cast<BYTE>(std::stoi(
                     std::string(heatmap::kUnknownColor).substr(3, 2),
                     nullptr,
-                    16),
-                std::stoi(
+                    16)),
+                static_cast<BYTE>(std::stoi(
                     std::string(heatmap::kUnknownColor).substr(5, 2),
                     nullptr,
-                    16)));
+                    16))));
         graphics.FillRectangle(
             &unknown,
             RectF(
@@ -2444,7 +2459,7 @@ private:
             window_ = nullptr;
             panel_.heatmap_destroyed(destroyed);
             const LRESULT result =
-                DefWindowProcW(window, message, wparam, lparam);
+                DefWindowProcW(destroyed, message, wparam, lparam);
             delete this;
             return result;
         }
