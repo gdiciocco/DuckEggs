@@ -1464,7 +1464,9 @@ private:
             rpx(10));
         const REAL learning_top =
             result.sidebar.GetBottom() - rpx(58);
-        const REAL outline_top = learning_top - rpx(76);
+        const REAL outlines_height = rpx(88);
+        const REAL outline_top =
+            learning_top - outlines_height - rpx(10);
         const REAL detail_top = result.sidebar.Y + rpx(112);
         result.detail = RectF(
             result.sidebar.X + rpx(14),
@@ -1475,7 +1477,7 @@ private:
             result.sidebar.X + rpx(14),
             outline_top,
             result.sidebar.Width - rpx(28),
-            rpx(66));
+            outlines_height);
         result.learning = RectF(
             result.sidebar.X + rpx(14),
             learning_top,
@@ -2100,8 +2102,10 @@ private:
             static_cast<LONG>(areas.outlines.GetBottom())};
         draw_text(
             device,
-            L"Violet: foreground  \u00b7  amber: current PiP  \u00b7  "
-            L"teal: recommendation  \u00b7  white dashed: full PiP",
+            L"Violet: foreground\n"
+            L"Amber: current PiP\n"
+            L"Teal: recommendation\n"
+            L"White dashed: full PiP",
             outlines_text,
             kSecondaryGdi,
             small_font_,
