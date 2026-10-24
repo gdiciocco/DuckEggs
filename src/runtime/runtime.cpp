@@ -733,7 +733,7 @@ public:
               {"picker_open", false},
               {"mode", "automatic"},
               {"selected_id", nullptr},
-              {"windows", Json::array()},
+              {"hover", empty_manual_hover()},
               {"error", nullptr},
               {"revision", 0},
               {"selection_revision", 0}}) {}
@@ -810,13 +810,24 @@ public:
         queue_manual(Control::OpenManualPicker);
     }
 
-    void request_manual_refresh() {
-        queue_manual(Control::RefreshManualPicker);
+    void request_manual_hover(Point point) {
+        if (!manual_session_.load()) {
+            return;
+        }
+        {
+            std::lock_guard lock(control_mutex_);
+            pending_hover_ = point;
+            if (hover_queued_) {
+                return;
+            }
+            controls_.push(ControlCommand{Control::HoverManualTarget, point});
+            hover_queued_ = true;
+        }
+        control_condition_.notify_all();
     }
 
-    void request_manual_selection(std::string selection_token) {
-        queue_manual(
-            Control::SelectManualTarget, std::move(selection_token));
+    void request_manual_selection(Point point) {
+        queue_manual(Control::SelectManualTarget, point);
     }
 
     void request_manual_reset() {
@@ -859,7 +870,7 @@ private:
         Pause,
         Quit,
         OpenManualPicker,
-        RefreshManualPicker,
+        HoverManualTarget,
         SelectManualTarget,
         ResetManualTarget,
         CloseManualPicker,
@@ -867,14 +878,50 @@ private:
 
     struct ControlCommand {
         Control kind{};
-        std::string selection_token;
+        Point point{};
     };
 
-    void queue_manual(Control control, std::string token = {}) {
+    static Json empty_manual_hover() {
+        return {
+            {"found", false},
+            {"point", {{"x", 0}, {"y", 0}}},
+            {"title", ""},
+            {"left", 0},
+            {"top", 0},
+            {"width", 0},
+            {"height", 0},
+            {"eligible", false},
+            {"reason", ""},
+            {"error", nullptr}};
+    }
+
+    static Json manual_hover_json(const ManualHoverSnapshot& hover) {
+        std::optional<std::string> error = hover.error;
+        std::string reason = hover.reason;
+        if (!hover.found && reason.empty()) {
+            reason =
+                "Point at the video window you want DuckEggs to move.";
+        }
+        if (error.has_value()) {
+            error = safe_error(*error);
+        }
+        return {
+            {"found", hover.found},
+            {"point", {{"x", hover.point.x}, {"y", hover.point.y}}},
+            {"title", hover.found ? Json(hover.title) : Json("")},
+            {"left", hover.rect.left},
+            {"top", hover.rect.top},
+            {"width", hover.rect.width()},
+            {"height", hover.rect.height()},
+            {"eligible", hover.found && hover.eligible},
+            {"reason", reason},
+            {"error", error.has_value() ? Json(*error) : Json(nullptr)}};
+    }
+
+    void queue_manual(Control control, Point point = {}) {
         {
             std::lock_guard lock(control_mutex_);
-            controls_.push(ControlCommand{
-                control, std::move(token)});
+            controls_.push(ControlCommand{control, point});
         }
         control_condition_.notify_all();
     }
@@ -1109,6 +1156,21 @@ private:
                 }
                 return true;
             }
+            if (command.kind == Control::HoverManualTarget) {
+                std::optional<Point> point;
+                {
+                    std::lock_guard lock(control_mutex_);
+                    if (pending_hover_.has_value()) {
+                        point = pending_hover_;
+                        pending_hover_.reset();
+                    }
+                    hover_queued_ = false;
+                }
+                if (point.has_value() && manual_picker_open_) {
+                    update_manual_hover(*point);
+                }
+                continue;
+            }
             if (command.kind == Control::Pause &&
                 loop_ != nullptr &&
                 !manual_session_.load()) {
@@ -1117,11 +1179,8 @@ private:
                 command.kind == Control::OpenManualPicker) {
                 open_manual_picker();
             } else if (
-                command.kind == Control::RefreshManualPicker) {
-                refresh_manual_picker();
-            } else if (
                 command.kind == Control::SelectManualTarget) {
-                select_manual_target(command.selection_token);
+                select_manual_target(command.point);
             } else if (
                 command.kind == Control::ResetManualTarget) {
                 reset_manual_target();
@@ -1130,20 +1189,6 @@ private:
                 update_manual_picker_closed();
             }
         }
-    }
-
-    static Json manual_windows_json(
-        const ManualWindowSnapshot& snapshot) {
-        Json windows = Json::array();
-        for (const ManualWindowInfo& window : snapshot.windows) {
-            windows.push_back({
-                {"selection_token", window.selection_token},
-                {"title", window.title},
-                {"executable", window.executable},
-                {"width", window.rect.width()},
-                {"height", window.rect.height()}});
-        }
-        return windows;
     }
 
     void sync_manual_status(const ManualTargetStatus& status) {
@@ -1174,16 +1219,10 @@ private:
     }
 
     void publish_manual_state(
-        const std::optional<ManualWindowSnapshot>& windows,
         const ManualTargetStatus& status,
         std::optional<std::string> error,
         bool picker_open,
         bool selection_attempt = false) {
-        std::optional<Json> serialized_windows;
-        if (windows.has_value()) {
-            serialized_windows =
-                manual_windows_json(*windows);
-        }
         std::lock_guard lock(manual_mutex_);
         Json next = manual_snapshot_;
         next["picker_open"] = picker_open;
@@ -1194,13 +1233,6 @@ private:
                 : "automatic";
         next["selected_id"] =
             status.selected ? Json(status.selected_id) : Json(nullptr);
-        if (windows.has_value()) {
-            next["supported"] = windows->supported;
-            next["windows"] = *serialized_windows;
-            if (windows->error.has_value()) {
-                error = windows->error;
-            }
-        }
         if (!error.has_value() && status.error.has_value()) {
             error = status.error;
         }
@@ -1218,6 +1250,22 @@ private:
         manual_snapshot_ = std::move(next);
     }
 
+    void update_manual_hover(Point point) {
+        if (loop_ == nullptr || backend_ == nullptr ||
+            !manual_picker_open_) {
+            return;
+        }
+        const ManualHoverSnapshot hover = backend_->manual_hover(point);
+        const Json serialized = manual_hover_json(hover);
+        std::lock_guard lock(manual_mutex_);
+        if (manual_snapshot_["hover"] == serialized) {
+            return;
+        }
+        manual_snapshot_["hover"] = serialized;
+        ++manual_revision_;
+        manual_snapshot_["revision"] = manual_revision_;
+    }
+
     void open_manual_picker() {
         // A queued close may have cleared the caller-side session latch.
         manual_session_.store(true);
@@ -1225,36 +1273,25 @@ private:
             return;
         }
         loop_->prepare_target_change();
-        const ManualWindowSnapshot windows = backend_->manual_windows();
+        manual_picker_open_ = true;
         const ManualTargetStatus status =
             backend_->manual_target_status();
         publish_manual_state(
-            windows,
             status,
             status.error,
             true);
+        std::lock_guard lock(manual_mutex_);
+        manual_snapshot_["hover"] = empty_manual_hover();
+        ++manual_revision_;
+        manual_snapshot_["revision"] = manual_revision_;
     }
 
-    void refresh_manual_picker() {
-        if (backend_ == nullptr) {
-            return;
-        }
-        const ManualWindowSnapshot windows = backend_->manual_windows();
-        const ManualTargetStatus status =
-            backend_->manual_target_status();
-        publish_manual_state(
-            windows,
-            status,
-            status.error,
-            true);
-    }
-
-    void select_manual_target(const std::string& token) {
+    void select_manual_target(Point point) {
         if (loop_ == nullptr || backend_ == nullptr) {
             return;
         }
         loop_->prepare_target_change();
-        const bool selected = backend_->select_manual_window(token);
+        const bool selected = backend_->select_manual_at(point);
         const ManualTargetStatus status =
             backend_->manual_target_status();
         std::optional<std::string> error = status.error;
@@ -1262,7 +1299,6 @@ private:
             error = "The selected window could not be used.";
         }
         publish_manual_state(
-            std::nullopt,
             status,
             error,
             true,
@@ -1282,7 +1318,6 @@ private:
             error = "Automatic selection could not be restored.";
         }
         publish_manual_state(
-            std::nullopt,
             status,
             error,
             manual_session_.load());
@@ -1292,8 +1327,14 @@ private:
         if (loop_ != nullptr) {
             loop_->prepare_target_change();
         }
+        manual_picker_open_ = false;
+        {
+            std::lock_guard lock(control_mutex_);
+            pending_hover_.reset();
+        }
         std::lock_guard lock(manual_mutex_);
         manual_snapshot_["picker_open"] = false;
+        manual_snapshot_["hover"] = empty_manual_hover();
         ++manual_revision_;
         manual_snapshot_["revision"] = manual_revision_;
         manual_session_.store(false);
@@ -1410,7 +1451,10 @@ private:
     std::mutex control_mutex_;
     std::condition_variable control_condition_;
     std::queue<ControlCommand> controls_;
+    std::optional<Point> pending_hover_;
+    bool hover_queued_{};
     std::atomic<bool> manual_session_{false};
+    bool manual_picker_open_{};
     DeadlineWaiter deadline_waiter_;
 
     mutable std::mutex snapshot_mutex_;
@@ -1456,13 +1500,12 @@ void AdaptiveApplication::request_manual_picker() {
     impl_->request_manual_picker();
 }
 
-void AdaptiveApplication::request_manual_refresh() {
-    impl_->request_manual_refresh();
+void AdaptiveApplication::request_manual_hover(Point point) {
+    impl_->request_manual_hover(point);
 }
 
-void AdaptiveApplication::request_manual_selection(
-    std::string selection_token) {
-    impl_->request_manual_selection(std::move(selection_token));
+void AdaptiveApplication::request_manual_selection(Point point) {
+    impl_->request_manual_selection(point);
 }
 
 void AdaptiveApplication::request_manual_reset() {

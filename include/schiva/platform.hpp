@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -49,18 +50,47 @@ struct MotionSize {
     int height{};
 };
 
-struct ManualWindowInfo {
-    std::string selection_token;
+struct ManualHoverSnapshot {
+    bool supported{};
+    bool found{};
+    Point point{};
     std::string title;
-    std::string executable;
     Rect rect;
+    bool eligible{};
+    std::string reason;
+    std::optional<std::string> error;
 };
 
-struct ManualWindowSnapshot {
-    bool supported{};
-    std::optional<std::string> error;
-    std::vector<ManualWindowInfo> windows;
+// One entry per top-level window in native front-to-back z-order. The shared
+// hit test skips infrastructure windows but deliberately returns an ineligible
+// full-screen window rather than exposing a window behind it.
+struct ManualWindowHit {
+    Rect rect;
+    bool visible{};
+    bool top_level{};
+    bool minimized{};
+    bool cloaked{};
+    bool own_process{};
+    bool shell_or_desktop{};
 };
+
+std::optional<std::size_t> manual_hit_test(
+    const std::vector<ManualWindowHit>& front_to_back,
+    Point point);
+
+struct ManualWindowEligibility {
+    bool eligible{};
+    std::string reason;
+};
+
+// Portable geometry policy shared with the native backend. Maximized windows
+// and windows covering at least 97% of their monitor or work area are treated
+// as full-screen and cannot be selected or retained as a manual target.
+ManualWindowEligibility manual_window_eligibility(
+    Rect window,
+    Rect monitor,
+    Rect work,
+    bool maximized);
 
 enum class ManualTargetMode {
     Automatic,
@@ -114,9 +144,9 @@ public:
     virtual bool begin_motion(const std::string& pip_id) = 0;
     virtual void end_motion() = 0;
     virtual bool move(const std::string& pip_id, int left, int top) = 0;
-    virtual ManualWindowSnapshot manual_windows();
+    virtual ManualHoverSnapshot manual_hover(Point point);
     virtual ManualTargetStatus manual_target_status() const;
-    virtual bool select_manual_window(std::string_view selection_token);
+    virtual bool select_manual_at(Point point);
     virtual bool reset_manual_target();
     virtual Json capabilities() const = 0;
     virtual Json probe();

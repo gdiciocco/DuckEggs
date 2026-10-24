@@ -1,8 +1,8 @@
 # DuckEggs v0.4.0-alpha.3
 
 This alpha expands Chrome picture-in-picture recognition to all 81 official
-locale titles and adds an opt-in manual window chooser for other browsers and
-applications.
+locale titles and adds opt-in point-and-click manual selection for other
+browsers and applications.
 
 [Download DuckEggs 0.4.0-alpha.3 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.3/DuckEggs-0.4.0-alpha.3-windows-x64.zip)
 
@@ -10,11 +10,14 @@ applications.
 
 - Previously, Chrome PiP recognition covered English and the legacy Italian
   title. DuckEggs now also matches official localized Chrome PiP titles.
-- **Choose PiP...** lists eligible visible windows with their title,
-  executable, and dimensions. The explicit session-only selection can target
-  another browser or application. It is not guessed by size or window class.
-- Opening the chooser, selecting a window, resetting to **Automatic**, or
-  closing the chooser leaves DuckEggs paused. Resume remains a separate action.
+- **Choose PiP...** opens a temporary overlay: hover to see a teal outline and
+  title, then click the floating video window once. The explicit session-only
+  selection can target another browser or application and is not guessed by
+  size or window class.
+- Full-screen and maximized windows appear gray and cannot be selected. **Esc**,
+  right-click, or **Cancel** exits without changing the existing target.
+- Opening the overlay, selecting a window, resetting to **Automatic**, or
+  closing the overlay leaves DuckEggs paused. Resume remains a separate action.
 
 ## Early alpha
 
@@ -26,8 +29,8 @@ interface remains in English. This build is unsigned and may have rough edges
 and bugs.
 
 Learning data stays on your PC in `%LOCALAPPDATA%\DuckEggs`. DuckEggs does not
-store screenshots or include analytics. Manual window names and the candidate
-list are session-only and are not persisted.
+store screenshots or include analytics. Manual window names and transient
+selection details are session-only and are never written to `status.json`.
 
 If something does not work as expected,
 [open a GitHub issue](https://github.com/gdiciocco/DuckEggs/issues).

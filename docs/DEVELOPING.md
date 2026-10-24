@@ -28,13 +28,14 @@ availability, learning updates, visual-signal state, and the primary
 Resume/Pause action. Learning maps and Exit are secondary actions.
 
 The compact footer also includes **Choose PiP...**. It opens a paced native
-chooser that lists eligible visible top-level windows by title, executable and
-dimensions. No row is selected by default and **Use window** stays disabled
-until the user selects one. Using a row applies that target and leaves the
-chooser open. **Refresh** performs an explicit owner-thread enumeration,
-**Automatic** resets to default Chrome discovery, and **Close** closes the
-chooser. Opening, selecting, resetting, or closing the chooser leaves DuckEggs
-paused; close the chooser before Resume.
+desktop picking overlay. Hovering a window shows its title and either a teal
+eligible outline or a gray full-screen state with a short reason. One
+deliberate left click sends that screen point to the owner thread, which
+freshly resolves and pins the window before the overlay closes. **Esc**,
+right-click, and **Cancel** leave the existing target unchanged.
+**Automatic** returns to Chrome-only discovery. Opening, selecting, resetting,
+or closing the overlay leaves DuckEggs paused; Resume is a separate action.
+The overlay does not take screenshots or preview window contents.
 
 The product quote is presented compactly. UI updates avoid unnecessary
 refreshes to reduce flicker while runtime status changes.
@@ -79,21 +80,34 @@ or activate the viewer.
 - Window identity includes the handle, process ID, process creation time,
   class, executable basename and exact title. Full identity validation is
   repeated throughout a movement.
-- Manual mode accepts a visible, restored, non-cloaked top-level window from a
-  non-DuckEggs process, including other browsers and media applications. It
-  excludes shell/desktop surfaces, minimized or maximized windows, invalid
+- Manual mode accepts a visible, non-full-screen, non-cloaked top-level window
+  from a non-DuckEggs process, including other browsers and media
+  applications. It excludes shell/desktop surfaces, minimized or maximized
+  windows, windows covering at least 97% of their monitor or work area, invalid
   rectangles, and windows whose process identity cannot be queried.
 - A manual binding pins the handle, process ID, process creation time, class,
   executable basename, and a private per-instance `SetPropW` lifetime marker.
   The marker is checked before observation, motion validation and the native
   move. Title changes are allowed because video titles update; handle reuse or
   any other identity mismatch fails closed.
-- Manual selection uses an ephemeral opaque candidate registry. A stale chooser
-  row is rejected after revalidation. Losing a manual target leaves the mode
+- Manual hover and selection use only screen points. Selection performs a fresh
+  native z-order hit-test at the actual click point; no hover token or cached
+  candidate is accepted. The shared hit-test skips DuckEggs and shell/desktop
+  surfaces, but returns a full-screen window so it can be rejected rather than
+  selecting the window behind it.
+- Hover requests are coalesced to the latest point. Hit-testing, identity
+  validation, and every native binding mutation run only on the runtime worker
+  thread. The UI reads small title/rectangle/eligibility snapshots and sends
+  queued commands; it never owns a native window handle or resolves processes.
+- The picking overlay is one temporary layered desktop window. It spans the
+  virtual desktop, including negative monitor origins, remains input-opaque so
+  selection clicks cannot reach the target app, and installs no global input
+  hook. It is cleaned up on close, focus loss, tray shutdown, and application
+  quit.
+- Manual target eligibility uses the same portable geometry policy at hover,
+  click time, and bound-target revalidation. If a bound target later becomes
+  full-screen or maximized, the binding is cleared and DuckEggs remains
   explicitly manual and paused, with no automatic Chrome fallback.
-- Candidate enumeration and every native binding mutation run only on the
-  runtime worker thread. The UI reads immutable bridge snapshots and sends
-  queued commands; it never enumerates windows or reads the backend directly.
 - A movement target is revalidated for geometry, cursor and held buttons
   immediately before it is applied. DuckEggs never activates, resizes,
   reorders or closes a user window.
@@ -254,10 +268,12 @@ runtime dependency.
 `test_platform` uses synthetic data for strict target identity, geometry,
 scheduling, status output, capture mailbox behavior, heatmap helpers and a
 SQLite backup round trip. It does not capture a real desktop or move a window.
-`test_manual_selection` uses a fake owner-thread backend to cover chooser pause
-barriers, queued toggle resistance, explicit selection/reset, stale choices,
-manual-target loss without automatic fallback, and portable identity-property
-predicates. It does not control a real desktop window.
+`test_manual_selection` uses a fake owner-thread backend to cover overlay pause
+barriers, queued toggle resistance, coalesced hover points, actual-click-point
+selection, full-screen rejection without selecting behind it, cancellation,
+rapid reopen, explicit selection/reset, manual-target loss without automatic
+fallback, and portable identity/eligibility/hit-test policies. It does not
+control a real desktop window.
 The core tests cover model, storage, controller and visual behavior.
 `core_parity` compares the complete C++ fixture output against the pinned
 Python reference when Python is available at configure time.

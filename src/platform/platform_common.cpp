@@ -349,24 +349,76 @@ std::optional<Rect> clipped_intersection(const Rect& rect, const Rect& bounds) {
     return result;
 }
 
+std::optional<std::size_t> manual_hit_test(
+    const std::vector<ManualWindowHit>& front_to_back,
+    Point point) {
+    for (std::size_t index = 0; index < front_to_back.size(); ++index) {
+        const ManualWindowHit& window = front_to_back[index];
+        if (!window.visible || !window.top_level || window.minimized ||
+            window.cloaked || window.own_process ||
+            window.shell_or_desktop) {
+            continue;
+        }
+        if (point.x >= window.rect.left &&
+            point.x < window.rect.right &&
+            point.y >= window.rect.top &&
+            point.y < window.rect.bottom) {
+            return index;
+        }
+    }
+    return std::nullopt;
+}
+
+ManualWindowEligibility manual_window_eligibility(
+    Rect window,
+    Rect monitor,
+    Rect work,
+    bool maximized) {
+    constexpr double kFullScreenCoverage = 0.97;
+    if (window.width() <= 0 || window.height() <= 0) {
+        return {false, "This window cannot be moved."};
+    }
+    if (maximized) {
+        return {false, "Full-screen windows cannot be moved."};
+    }
+    const auto covers = [](const Rect& candidate, const Rect& bounds) {
+        const auto overlap = clipped_intersection(candidate, bounds);
+        if (!overlap.has_value() || bounds.width() <= 0 ||
+            bounds.height() <= 0) {
+            return false;
+        }
+        const double area =
+            static_cast<double>(overlap->width()) * overlap->height();
+        const double covered =
+            area /
+            (static_cast<double>(bounds.width()) * bounds.height());
+        return covered >= kFullScreenCoverage;
+    };
+    if (covers(window, monitor) || covers(window, work)) {
+        return {false, "Full-screen windows cannot be moved."};
+    }
+    return {true, {}};
+}
+
 Json Backend::probe() {
     Json result = capabilities();
     result["capture_performed"] = false;
     return result;
 }
 
-ManualWindowSnapshot Backend::manual_windows() {
-    return {
-        false,
-        std::string("This platform does not support manual window selection."),
-        {}};
+ManualHoverSnapshot Backend::manual_hover(Point point) {
+    ManualHoverSnapshot snapshot;
+    snapshot.point = point;
+    snapshot.error =
+        "This platform does not support manual window selection.";
+    return snapshot;
 }
 
 ManualTargetStatus Backend::manual_target_status() const {
     return {};
 }
 
-bool Backend::select_manual_window(std::string_view) {
+bool Backend::select_manual_at(Point) {
     return false;
 }
 

@@ -55,7 +55,7 @@ set up.
 DuckEggs starts paused. Close any other DuckEggs versions before starting it.
 Automatic mode uses only one Chrome picture-in-picture window at a time.
 For another browser or application, open its floating video window, click
-**Choose PiP...**, select its row, and click **Use window**. Manual selection
+**Choose PiP...**, then click the floating video window itself. Manual selection
 always leaves DuckEggs paused; use **Resume** when you are ready. The selection
 is not saved after exit.
 
@@ -65,11 +65,13 @@ The **To tray** action in the window header hides DuckEggs without changing
 whether it is paused or running. Use the notification-area icon to restore it.
 Right-click that icon to open DuckEggs, pause or resume it, or exit.
 
-**Choose PiP...** opens a refreshed list of eligible visible windows with each
-window's title, executable, and dimensions. Choose a row, then click **Use
-window**; the chooser stays open. **Automatic** returns to Chrome-only
-discovery, and **Close** closes the chooser. Close the chooser before clicking
-**Resume**. The chooser never captures or previews the selected window.
+**Choose PiP...** opens a temporary point-and-click overlay. Hover over a window
+to see a teal outline and its title, then click once to pin it. Full-screen and
+maximized windows appear gray and cannot be selected. Press **Esc**, right-click,
+or click **Cancel** to exit without changing the current target. **Automatic**
+returns to Chrome-only discovery. Every exit leaves DuckEggs paused, so use
+**Resume** as a separate action. The overlay does not capture, preview, or store
+the selected window, and the selection click is not sent to the app below.
 
 Closing the window still exits DuckEggs.
 
@@ -77,8 +79,9 @@ Closing the window still exits DuckEggs.
 
 Learning data and preferences stay on your PC in
 `%LOCALAPPDATA%\DuckEggs`. DuckEggs does not store screenshots and does not
-include analytics. Manual window names and the window list remain in memory for
-the current session and are not written to learning data or `status.json`.
+include analytics. Manual window names and transient hover details remain in
+memory for the current session only and are not written to learning data or
+`status.json`.
 
 To reset DuckEggs, exit the app and delete that folder.
 

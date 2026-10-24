@@ -297,6 +297,23 @@ std::string utf8(const std::wstring& value) {
     return result;
 }
 
+std::string manual_hover_title(const std::wstring& title) {
+    if (title.empty()) {
+        return "(Untitled window)";
+    }
+    constexpr std::size_t kTitleLimit = 180;
+    if (title.size() <= kTitleLimit) {
+        return utf8(title);
+    }
+    std::size_t length = kTitleLimit - 3;
+    if (length > 0 && title[length - 1] >= 0xD800 &&
+        title[length - 1] <= 0xDBFF) {
+        --length;
+    }
+    std::wstring shortened = title.substr(0, length) + L"...";
+    return utf8(shortened);
+}
+
 std::string identity_string(const WindowRecord* record) {
     if (record == nullptr) {
         return "-";
@@ -602,34 +619,24 @@ public:
         last_real_foreground_ = nullptr;
     }
 
-    ManualWindowSnapshot manual_windows() override {
-        ManualWindowSnapshot snapshot;
+    ManualHoverSnapshot manual_hover(Point point) override {
+        ManualHoverSnapshot snapshot;
         snapshot.supported = true;
+        snapshot.point = point;
         if (closed_) {
             snapshot.error = "the Windows backend is closed";
             return snapshot;
         }
         try {
-            manual_candidates_.clear();
-            manual_candidate_generation_ =
-                manual_candidate_generation_ + 1ULL;
-            const std::vector<WindowRecord> records =
-                snapshot_manual_records();
-            std::size_t index = 0;
-            for (const WindowRecord& record : records) {
-                const std::string token =
-                    "candidate-" +
-                    std::to_string(manual_candidate_generation_) + "-" +
-                    std::to_string(index++);
-                manual_candidates_.emplace(token, record);
-                snapshot.windows.push_back({
-                    token,
-                    utf8(record.title),
-                    utf8(record.process_basename),
-                    record.rect});
+            const auto target = manual_target_at(point);
+            if (target.has_value()) {
+                snapshot.found = true;
+                snapshot.title = manual_hover_title(target->record.title);
+                snapshot.rect = target->record.rect;
+                snapshot.eligible = target->eligibility.eligible;
+                snapshot.reason = target->eligibility.reason;
             }
         } catch (const std::exception& exception) {
-            manual_candidates_.clear();
             snapshot.error = exception.what();
         }
         return snapshot;
@@ -649,65 +656,51 @@ public:
         return status;
     }
 
-    bool select_manual_window(std::string_view selection_token) override {
+    bool select_manual_at(Point point) override {
         if (closed_) {
             manual_error_ = "the Windows backend is closed";
             return false;
         }
-        const auto candidate =
-            manual_candidates_.find(std::string(selection_token));
-        if (candidate == manual_candidates_.end()) {
-            manual_error_ =
-                "This window list is stale. Refresh and choose again.";
-            return false;
-        }
-
-        std::optional<WindowRecord> current;
+        std::optional<ManualPointTarget> target;
         try {
-            for (const WindowRecord& record :
-                 snapshot_manual_records()) {
-                if (record.handle == candidate->second.handle) {
-                    current = record;
-                    break;
-                }
-            }
+            target = manual_target_at(point);
         } catch (const std::exception& exception) {
             manual_error_ =
-                "The selected window could not be revalidated: " +
+                "The window under the pointer could not be validated: " +
                 std::string(exception.what());
+            last_error_ = manual_error_;
             return false;
         }
-        if (!current.has_value()) {
-            manual_error_ =
-                "The selected window is no longer available. Refresh and "
-                "choose again.";
+        if (!target.has_value()) {
+            manual_error_ = "No movable window is under the pointer.";
+            last_error_ = manual_error_;
             return false;
         }
-        const WindowRecord& expected = candidate->second;
-        if (expected.process_id != current->process_id ||
-            expected.creation_time != current->creation_time ||
-            expected.class_name != current->class_name ||
-            _wcsicmp(
-                expected.process_basename.c_str(),
-                current->process_basename.c_str()) != 0) {
-            manual_error_ =
-                "The selected window changed identity. Refresh and choose "
-                "again.";
+        if (!target->eligibility.eligible) {
+            manual_error_ = target->eligibility.reason;
+            last_error_ = manual_error_;
             return false;
         }
+        const WindowRecord current = target->record;
         if (manual_binding_.has_value() &&
-            manual_binding_->record.handle == current->handle &&
-            manual_marker_matches(current->handle) &&
-            same_motion_identity(manual_binding_->record, *current)) {
-            manual_binding_->record = *current;
+            manual_binding_->record.handle == current.handle &&
+            manual_marker_matches(current.handle) &&
+            same_motion_identity(manual_binding_->record, current)) {
+            manual_binding_->record = current;
             manual_binding_->selection_id =
-                std::string(selection_token);
+                "manual-" + std::to_string(++manual_selection_generation_);
             manual_mode_ = true;
             manual_error_.reset();
             last_error_.reset();
             return true;
         }
 
+        // A same-handle binding with a broken marker must be removed before
+        // placing the replacement property on that window.
+        if (manual_binding_.has_value() &&
+            manual_binding_->record.handle == current.handle) {
+            remove_manual_marker();
+        }
         HANDLE marker = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         if (marker == nullptr) {
             manual_error_ =
@@ -715,10 +708,10 @@ public:
             return false;
         }
         if (GetPropW(
-                current->handle,
+                current.handle,
                 manual_property_name_.c_str()) != nullptr ||
             !SetPropW(
-                current->handle,
+                current.handle,
                 manual_property_name_.c_str(),
                 marker)) {
             CloseHandle(marker);
@@ -727,7 +720,7 @@ public:
             return false;
         }
         if (GetPropW(
-                current->handle,
+                current.handle,
                 manual_property_name_.c_str()) != marker) {
             // The property is no longer ours, so removal would be unsafe.
             CloseHandle(marker);
@@ -738,8 +731,8 @@ public:
 
         remove_manual_marker();
         manual_binding_ = ManualBinding{
-            *current,
-            std::string(selection_token),
+            current,
+            "manual-" + std::to_string(++manual_selection_generation_),
             marker};
         manual_mode_ = true;
         manual_error_.reset();
@@ -755,7 +748,6 @@ public:
         remove_manual_marker();
         manual_mode_ = false;
         manual_error_.reset();
-        manual_candidates_.clear();
         last_error_.reset();
         invalidate_capture();
         return true;
@@ -1161,7 +1153,6 @@ public:
         end_motion();
         remove_manual_marker();
         manual_mode_ = false;
-        manual_candidates_.clear();
         manual_error_.reset();
         last_records_.clear();
         last_scan_records_.clear();
@@ -1223,9 +1214,23 @@ private:
         }
     }
 
+    struct ManualPointTarget {
+        WindowRecord record;
+        ManualWindowEligibility eligibility;
+    };
+
+    struct ManualMonitorGeometry {
+        Rect monitor;
+        Rect work;
+    };
+
+    struct ManualHitEntry {
+        HWND handle{};
+        ManualWindowHit hit;
+    };
+
     struct ManualEnumerationContext {
-        WindowsBackend* backend{};
-        std::vector<WindowRecord>* records{};
+        std::vector<ManualHitEntry>* entries{};
         std::exception_ptr failure;
         DWORD own_pid{};
     };
@@ -1236,47 +1241,21 @@ private:
         auto* context =
             reinterpret_cast<ManualEnumerationContext*>(parameter);
         try {
-            if (!IsWindowVisible(window) ||
-                GetAncestor(window, GA_ROOT) != window ||
-                IsIconic(window) || IsZoomed(window) ||
-                window_is_cloaked(window)) {
-                return TRUE;
-            }
             const std::wstring class_name = window_class(window);
-            if (class_name.empty() ||
-                shell_or_desktop_class(class_name)) {
-                return TRUE;
-            }
-            const std::wstring title = window_title(window);
-            if (title.empty()) {
-                return TRUE;
-            }
             const auto rect = window_rect(window);
-            if (!rect.has_value()) {
-                return TRUE;
-            }
             DWORD process_id = 0;
             GetWindowThreadProcessId(window, &process_id);
-            if (process_id == 0 || process_id == context->own_pid) {
-                return TRUE;
-            }
-            const auto identity =
-                context->backend->lookup_process(process_id);
-            if (!identity.has_value() ||
-                !valid_creation_time(identity->creation_time) ||
-                identity->basename.empty()) {
-                return TRUE;
-            }
-            context->records->push_back(WindowRecord{
+            context->entries->push_back(ManualHitEntry{
                 window,
-                process_id,
-                class_name,
-                title,
-                identity->basename,
-                *rect,
-                is_target_window(
-                    class_name, title, identity->basename, true, true),
-                identity->creation_time});
+                ManualWindowHit{
+                    rect.value_or(Rect{}),
+                    IsWindowVisible(window) != FALSE,
+                    GetAncestor(window, GA_ROOT) == window,
+                    IsIconic(window) != FALSE,
+                    window_is_cloaked(window),
+                    process_id != 0 && process_id == context->own_pid,
+                    !class_name.empty() &&
+                        shell_or_desktop_class(class_name)}});
             return TRUE;
         } catch (...) {
             context->failure = std::current_exception();
@@ -1284,10 +1263,10 @@ private:
         }
     }
 
-    std::vector<WindowRecord> snapshot_manual_records() {
-        std::vector<WindowRecord> records;
+    std::vector<ManualHitEntry> snapshot_manual_hits() {
+        std::vector<ManualHitEntry> entries;
         ManualEnumerationContext context{
-            this, &records, nullptr, GetCurrentProcessId()};
+            &entries, nullptr, GetCurrentProcessId()};
         if (!EnumWindows(
                 &WindowsBackend::enum_manual_window,
                 reinterpret_cast<LPARAM>(&context))) {
@@ -1298,20 +1277,58 @@ private:
                 "could not enumerate windows for manual selection (Win32 " +
                 std::to_string(GetLastError()) + ")");
         }
-        std::sort(
-            records.begin(),
-            records.end(),
-            [](const WindowRecord& first, const WindowRecord& second) {
-                return _wcsicmp(
-                           first.process_basename.c_str(),
-                           second.process_basename.c_str()) < 0 ||
-                       (_wcsicmp(
-                            first.process_basename.c_str(),
-                            second.process_basename.c_str()) == 0 &&
-                        _wcsicmp(
-                            first.title.c_str(), second.title.c_str()) < 0);
-            });
-        return records;
+        return entries;
+    }
+
+    std::optional<ManualPointTarget> manual_target_at(Point point) {
+        const std::vector<ManualHitEntry> entries =
+            snapshot_manual_hits();
+        if (entries.empty()) {
+            return std::nullopt;
+        }
+        std::vector<ManualWindowHit> hits;
+        hits.reserve(entries.size());
+        for (const ManualHitEntry& entry : entries) {
+            hits.push_back(entry.hit);
+        }
+        const auto index = manual_hit_test(hits, point);
+        if (!index.has_value()) {
+            return std::nullopt;
+        }
+
+        const HWND handle = entries[*index].handle;
+        const auto rect = window_rect(handle);
+        if (!rect.has_value()) {
+            return std::nullopt;
+        }
+        DWORD process_id = 0;
+        GetWindowThreadProcessId(handle, &process_id);
+        const auto process = lookup_process(process_id);
+        const std::wstring class_name = window_class(handle);
+        const std::wstring title = window_title(handle);
+        WindowRecord record{
+            handle,
+            process_id,
+            class_name,
+            title,
+            process.has_value() ? process->basename : L"",
+            *rect,
+            false,
+            process.has_value() ? process->creation_time : 0};
+        const auto geometry = monitor_geometry(*rect);
+        ManualWindowEligibility eligibility =
+            manual_window_eligibility(
+                *rect,
+                geometry.monitor,
+                geometry.work,
+                IsZoomed(handle) != FALSE);
+        if (process_id == 0 || !process.has_value() ||
+            !valid_creation_time(process->creation_time) ||
+            process->basename.empty() || class_name.empty()) {
+            eligibility = {
+                false, "This window cannot be selected safely."};
+        }
+        return ManualPointTarget{record, eligibility};
     }
 
     std::optional<ProcessIdentity> lookup_process(DWORD process_id) {
@@ -1640,6 +1657,32 @@ private:
             info.rcWork.bottom};
     }
 
+    static ManualMonitorGeometry monitor_geometry(Rect window) {
+        RECT native_rect{
+            window.left, window.top, window.right, window.bottom};
+        const HMONITOR monitor = MonitorFromRect(
+            &native_rect, MONITOR_DEFAULTTONEAREST);
+        if (monitor == nullptr) {
+            throw PlatformError("could not find the window monitor");
+        }
+        MONITORINFO info{};
+        info.cbSize = sizeof(info);
+        if (!GetMonitorInfoW(monitor, &info)) {
+            throw PlatformError("could not read monitor geometry");
+        }
+        return {
+            Rect{
+                info.rcMonitor.left,
+                info.rcMonitor.top,
+                info.rcMonitor.right,
+                info.rcMonitor.bottom},
+            Rect{
+                info.rcWork.left,
+                info.rcWork.top,
+                info.rcWork.right,
+                info.rcWork.bottom}};
+    }
+
     bool motion_active() const {
         return motion_lease_.has_value();
     }
@@ -1693,7 +1736,6 @@ private:
             return std::nullopt;
         }
         if (!IsWindowVisible(handle) || IsIconic(handle) ||
-            IsZoomed(handle) ||
             GetAncestor(handle, GA_ROOT) != handle ||
             window_is_cloaked(handle)) {
             fail_manual(
@@ -1723,6 +1765,17 @@ private:
             fail_manual(
                 "The selected manual window identity could not be "
                 "validated.");
+            return std::nullopt;
+        }
+        const auto geometry = monitor_geometry(rect);
+        const ManualWindowEligibility eligibility =
+            manual_window_eligibility(
+                rect,
+                geometry.monitor,
+                geometry.work,
+                IsZoomed(handle) != FALSE);
+        if (!eligibility.eligible) {
+            fail_manual(eligibility.reason);
             return std::nullopt;
         }
         const detail::ManualWindowIdentity expected{
@@ -1892,8 +1945,7 @@ private:
     std::vector<WindowRecord> last_records_;
     std::map<DWORD, ProcessIdentity> process_cache_;
     std::wstring manual_property_name_;
-    std::map<std::string, WindowRecord> manual_candidates_;
-    unsigned long long manual_candidate_generation_{};
+    unsigned long long manual_selection_generation_{};
     std::optional<ManualBinding> manual_binding_;
     bool manual_mode_{};
     std::optional<std::string> manual_error_;

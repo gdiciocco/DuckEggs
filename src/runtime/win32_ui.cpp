@@ -51,11 +51,8 @@ constexpr int kDonateOther = 1204;
 constexpr int kTrayOpen = 1301;
 constexpr int kTrayPauseToggle = 1302;
 constexpr int kTrayExit = 1303;
-constexpr int kManualWindowList = 1401;
-constexpr int kManualRefresh = 1402;
-constexpr int kManualAutomatic = 1403;
-constexpr int kManualUse = 1404;
-constexpr int kManualCancel = 1405;
+constexpr int kManualAutomatic = 1401;
+constexpr int kManualCancel = 1402;
 constexpr UINT kPanelTimer = 1;
 constexpr UINT kHeatmapTimer = 2;
 constexpr UINT kManualPickerTimer = 3;
@@ -1665,17 +1662,16 @@ public:
         ControlPanel& panel)
         : application_(application), owner_(owner), panel_(panel) {
         dpi_ = system_dpi();
-        create_fonts();
-        background_brush_ = CreateSolidBrush(kSurfaceGdi);
+        create_window();
         window_ = CreateWindowExW(
-            WS_EX_APPWINDOW,
+            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             kManualPickerClass,
-            L"DuckEggs - Choose PiP window",
-            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            MulDiv(700, static_cast<int>(dpi_), 96),
-            MulDiv(440, static_cast<int>(dpi_), 96),
+            L"DuckEggs - Click the PiP window",
+            WS_POPUP | WS_CLIPCHILDREN,
+            virtual_bounds_.left,
+            virtual_bounds_.top,
+            virtual_bounds_.width(),
+            virtual_bounds_.height(),
             owner_,
             nullptr,
             GetModuleHandleW(nullptr),
@@ -1683,11 +1679,13 @@ public:
         if (window_ == nullptr) {
             destroy_resources();
             throw PlatformError(
-                "the manual PiP window chooser could not start");
+                "the manual PiP picking overlay could not start");
         }
+        dpi_ = dpi_for_window(window_);
         create_controls();
-        update_bridge();
-        SetTimer(window_, kManualPickerTimer, 150, nullptr);
+        cached_snapshot_ = application_.manual_snapshot();
+        render();
+        SetTimer(window_, kManualPickerTimer, 35, nullptr);
     }
 
     ~ManualPickerWindow() {
@@ -1709,61 +1707,26 @@ private:
         return MulDiv(logical, static_cast<int>(dpi_), 96);
     }
 
-    void create_fonts() {
-        destroy_fonts();
-        title_font_ = make_font(dpi_, 20, FW_SEMIBOLD);
-        body_font_ = make_font(dpi_, 13, FW_NORMAL);
-        semibold_font_ = make_font(dpi_, 13, FW_SEMIBOLD);
-        small_font_ = make_font(dpi_, 12, FW_NORMAL);
-    }
-
-    void destroy_fonts() {
-        std::array<HFONT*, 4> fonts{
-            &title_font_, &body_font_, &semibold_font_, &small_font_};
-        for (HFONT* font : fonts) {
-            if (*font != nullptr) {
-                DeleteObject(*font);
-                *font = nullptr;
-            }
-        }
-    }
-
-    void apply_fonts() {
-        for (HWND control :
-             {help_, mode_, error_, refresh_, automatic_, use_, cancel_}) {
-            if (control != nullptr) {
-                SendMessageW(
-                    control,
-                    WM_SETFONT,
-                    reinterpret_cast<WPARAM>(
-                        control == help_ || control == mode_ ||
-                                control == error_
-                            ? small_font_
-                            : semibold_font_),
-                    TRUE);
-            }
-        }
-        if (list_ != nullptr) {
-            SendMessageW(
-                list_,
-                WM_SETFONT,
-                reinterpret_cast<WPARAM>(body_font_),
-                TRUE);
-        }
-        if (window_ != nullptr) {
-            InvalidateRect(window_, nullptr, FALSE);
-        }
-    }
-
     void destroy_resources() {
         if (window_ != nullptr) {
             KillTimer(window_, kManualPickerTimer);
         }
-        if (background_brush_ != nullptr) {
-            DeleteObject(background_brush_);
-            background_brush_ = nullptr;
+        release_layer();
+    }
+
+    void create_window() {
+        virtual_bounds_ = Rect{
+            GetSystemMetrics(SM_XVIRTUALSCREEN),
+            GetSystemMetrics(SM_YVIRTUALSCREEN),
+            GetSystemMetrics(SM_XVIRTUALSCREEN) +
+                GetSystemMetrics(SM_CXVIRTUALSCREEN),
+            GetSystemMetrics(SM_YVIRTUALSCREEN) +
+                GetSystemMetrics(SM_CYVIRTUALSCREEN)};
+        if (virtual_bounds_.width() <= 0 ||
+            virtual_bounds_.height() <= 0) {
+            throw PlatformError(
+                "the desktop bounds are unavailable for manual picking");
         }
-        destroy_fonts();
     }
 
     HWND make_control(
@@ -1789,85 +1752,16 @@ private:
     }
 
     void create_controls() {
-        help_ = make_control(
-            L"STATIC",
-            L"Select the floating video window you want DuckEggs to move.",
-            SS_LEFT,
-            0);
-        mode_ = make_control(L"STATIC", L"", SS_LEFT, 0);
-        error_ =
-            make_control(L"STATIC", L"", SS_LEFT | SS_NOPREFIX, 0);
-        list_ = CreateWindowExW(
-            WS_EX_CLIENTEDGE,
-            WC_LISTVIEWW,
-            L"",
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT |
-                LVS_SINGLESEL | LVS_SHOWSELALWAYS,
-            0,
-            0,
-            0,
-            0,
-            window_,
-            reinterpret_cast<HMENU>(
-                static_cast<INT_PTR>(kManualWindowList)),
-            GetModuleHandleW(nullptr),
-            nullptr);
-        refresh_ = make_control(
-            L"BUTTON",
-            L"Refresh",
-            WS_TABSTOP | BS_PUSHBUTTON,
-            kManualRefresh);
         automatic_ = make_control(
             L"BUTTON",
             L"Automatic",
             WS_TABSTOP | BS_PUSHBUTTON,
             kManualAutomatic);
-        use_ = make_control(
-            L"BUTTON",
-            L"Use window",
-            WS_TABSTOP | BS_DEFPUSHBUTTON,
-            kManualUse);
         cancel_ = make_control(
             L"BUTTON",
-            L"Close",
+            L"Cancel",
             WS_TABSTOP | BS_PUSHBUTTON,
             kManualCancel);
-        EnableWindow(use_, FALSE);
-        if (list_ != nullptr) {
-            SendMessageW(
-                list_,
-                WM_SETFONT,
-                reinterpret_cast<WPARAM>(body_font_),
-                TRUE);
-            ListView_SetExtendedListViewStyle(
-                list_,
-                LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES |
-                    LVS_EX_DOUBLEBUFFER);
-            LVCOLUMNW title{};
-            title.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_FMT | LVCF_SUBITEM;
-            title.pszText = const_cast<wchar_t*>(L"Window title");
-            title.cx = px(330);
-            title.fmt = LVCFMT_LEFT;
-            title.iSubItem = 0;
-            ListView_InsertColumn(list_, 0, &title);
-            LVCOLUMNW executable{};
-            executable.mask =
-                LVCF_TEXT | LVCF_WIDTH | LVCF_FMT | LVCF_SUBITEM;
-            executable.pszText = const_cast<wchar_t*>(L"Executable");
-            executable.cx = px(170);
-            executable.fmt = LVCFMT_LEFT;
-            executable.iSubItem = 1;
-            ListView_InsertColumn(list_, 1, &executable);
-            LVCOLUMNW dimensions{};
-            dimensions.mask =
-                LVCF_TEXT | LVCF_WIDTH | LVCF_FMT | LVCF_SUBITEM;
-            dimensions.pszText = const_cast<wchar_t*>(L"Dimensions");
-            dimensions.cx = px(130);
-            dimensions.fmt = LVCFMT_RIGHT;
-            dimensions.iSubItem = 2;
-            ListView_InsertColumn(list_, 2, &dimensions);
-        }
-        apply_fonts();
         layout_controls();
     }
 
@@ -1877,301 +1771,425 @@ private:
         }
         RECT client{};
         GetClientRect(window_, &client);
-        const int margin = px(16);
-        const LONG available_width =
-            std::max<LONG>(
-                0, client.right - static_cast<LONG>(margin) * 2);
-        const int width = static_cast<int>(available_width);
         const int button_height = px(34);
         const int button_top =
-            client.bottom - margin - button_height;
-        auto move = [&](HWND control, int left, int top, int w, int h) {
-            if (control != nullptr) {
-                MoveWindow(control, left, top, std::max(0, w),
-                           std::max(0, h), TRUE);
-            }
-        };
-        move(help_, margin, px(52), width, px(22));
-        move(mode_, margin, px(76), width, px(34));
-        move(error_, margin, px(112), width, px(38));
-        const int list_top = px(158);
-        move(
-            list_,
-            margin,
-            list_top,
-            width,
-            std::max(0, button_top - px(12) - list_top));
-        const int dimensions_width = px(110);
-        const int executable_width = px(150);
-        const int title_width = std::max(
-            px(120),
-            width - px(20) - executable_width - dimensions_width);
-        ListView_SetColumnWidth(list_, 0, title_width);
-        ListView_SetColumnWidth(list_, 1, executable_width);
-        ListView_SetColumnWidth(list_, 2, dimensions_width);
-        const int right = client.right - margin;
-        move(cancel_, right - px(90), button_top, px(90), button_height);
-        move(
-            use_,
-            right - px(90) - px(8) - px(112),
-            button_top,
-            px(112),
-            button_height);
-        move(
-            automatic_,
-            margin,
-            button_top,
-            px(104),
-            button_height);
-        move(
-            refresh_,
-            margin + px(104) + px(8),
-            button_top,
-            px(84),
-            button_height);
-        InvalidateRect(window_, nullptr, FALSE);
+            std::max(px(8), client.bottom - px(54) - button_height);
+        const int automatic_left =
+            client.right / 2 - px(112) - px(6);
+        const int cancel_left = client.right / 2 + px(6);
+        if (automatic_ != nullptr) {
+            MoveWindow(
+                automatic_,
+                automatic_left,
+                button_top,
+                px(112),
+                button_height,
+                TRUE);
+        }
+        if (cancel_ != nullptr) {
+            MoveWindow(
+                cancel_,
+                cancel_left,
+                button_top,
+                px(112),
+                button_height,
+                TRUE);
+        }
     }
 
-    void rebuild_windows(const Json& windows) {
-        updating_ = true;
-        ListView_DeleteAllItems(list_);
-        tokens_.clear();
-        EnableWindow(use_, FALSE);
-        if (windows.is_array()) {
-            for (const Json& item : windows) {
-                const std::string token =
-                    string_field(item, "selection_token").value_or("");
-                if (token.empty()) {
-                    continue;
+    void release_layer() {
+        if (layer_dc_ != nullptr) {
+            if (layer_old_bitmap_ != nullptr) {
+                SelectObject(layer_dc_, layer_old_bitmap_);
+                layer_old_bitmap_ = nullptr;
+            }
+            DeleteDC(layer_dc_);
+            layer_dc_ = nullptr;
+        }
+        if (layer_bitmap_ != nullptr) {
+            DeleteObject(layer_bitmap_);
+            layer_bitmap_ = nullptr;
+        }
+        layer_pixels_ = nullptr;
+        layer_width_ = 0;
+        layer_height_ = 0;
+    }
+
+    bool ensure_layer(int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return false;
+        }
+        if (layer_dc_ != nullptr && layer_width_ == width &&
+            layer_height_ == height) {
+            return true;
+        }
+        release_layer();
+        HDC screen = GetDC(nullptr);
+        if (screen == nullptr) {
+            return false;
+        }
+        layer_dc_ = CreateCompatibleDC(screen);
+        BITMAPINFO info{};
+        info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        info.bmiHeader.biWidth = width;
+        info.bmiHeader.biHeight = -height;
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+        layer_bitmap_ = CreateDIBSection(
+            screen,
+            &info,
+            DIB_RGB_COLORS,
+            &layer_pixels_,
+            nullptr,
+            0);
+        ReleaseDC(nullptr, screen);
+        if (layer_dc_ == nullptr || layer_bitmap_ == nullptr ||
+            layer_pixels_ == nullptr) {
+            release_layer();
+            return false;
+        }
+        layer_old_bitmap_ = SelectObject(layer_dc_, layer_bitmap_);
+        if (layer_old_bitmap_ == nullptr ||
+            layer_old_bitmap_ == HGDI_ERROR) {
+            layer_old_bitmap_ = nullptr;
+            release_layer();
+            return false;
+        }
+        layer_width_ = width;
+        layer_height_ = height;
+        return true;
+    }
+
+    static RectF rectf(const RECT& rect) {
+        return RectF(
+            static_cast<REAL>(rect.left),
+            static_cast<REAL>(rect.top),
+            static_cast<REAL>(rect.right - rect.left),
+            static_cast<REAL>(rect.bottom - rect.top));
+    }
+
+    static void draw_string(
+        Graphics& graphics,
+        const std::wstring& text,
+        Font& font,
+        SolidBrush& brush,
+        RectF bounds,
+        StringAlignment alignment = StringAlignmentNear) {
+        StringFormat format;
+        format.SetAlignment(alignment);
+        format.SetLineAlignment(StringAlignmentCenter);
+        format.SetTrimming(StringTrimmingEllipsisCharacter);
+        format.SetFormatFlags(StringFormatFlagsNoWrap);
+        graphics.DrawString(
+            text.c_str(),
+            -1,
+            &font,
+            bounds,
+            &format,
+            &brush);
+    }
+
+    void render() {
+        if (window_ == nullptr ||
+            !ensure_layer(
+                virtual_bounds_.width(), virtual_bounds_.height())) {
+            return;
+        }
+        Bitmap bitmap(
+            layer_width_,
+            layer_height_,
+            layer_width_ * 4,
+            PixelFormat32bppPARGB,
+            static_cast<BYTE*>(layer_pixels_));
+        if (bitmap.GetLastStatus() != Ok) {
+            return;
+        }
+        Graphics graphics(&bitmap);
+        graphics.SetSmoothingMode(SmoothingModeAntiAlias);
+        graphics.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
+        // Alpha 1 keeps every pixel input-opaque while remaining visually
+        // transparent. UpdateLayeredWindow therefore never creates a
+        // click-through hole that could send the selection click to the app.
+        graphics.Clear(Color(1, 0, 0, 0));
+
+        const int width = layer_width_;
+        Font heading(L"Segoe UI", rpx(15), FontStyleBold, UnitPixel);
+        Font body(L"Segoe UI", rpx(13), FontStyleRegular, UnitPixel);
+        Font small(L"Segoe UI", rpx(12), FontStyleRegular, UnitPixel);
+        SolidBrush text_brush(Color(255, 232, 238, 245));
+        SolidBrush secondary_brush(Color(255, 190, 201, 214));
+        SolidBrush panel_brush(Color(238, 17, 21, 28));
+        SolidBrush unavailable_brush(Color(78, 64, 64, 64));
+        Pen accent_pen(Color(255, 115, 220, 197), rpx(4));
+        Pen unavailable_pen(Color(255, 178, 184, 190), rpx(4));
+
+        const int banner_width = std::min(width - px(32), px(780));
+        const RECT banner{
+            (width - banner_width) / 2,
+            px(18),
+            (width + banner_width) / 2,
+            px(92)};
+        graphics.FillRectangle(&panel_brush, rectf(banner));
+        draw_string(
+            graphics,
+            L"Click the video window to pin it \u00b7 Esc or right-click to cancel",
+            heading,
+            text_brush,
+            RectF(
+                static_cast<REAL>(banner.left + px(18)),
+                static_cast<REAL>(banner.top + px(8)),
+                static_cast<REAL>(banner_width - px(36)),
+                static_cast<REAL>(px(30))),
+            StringAlignmentCenter);
+
+        const Json snapshot =
+            cached_snapshot_.is_object()
+                ? cached_snapshot_
+                : application_.manual_snapshot();
+        const Json hover =
+            snapshot.contains("hover") && snapshot["hover"].is_object()
+                ? snapshot["hover"]
+                : Json::object();
+        std::wstring status;
+        if (!bool_field(snapshot, "supported", true)) {
+            status = L"Manual window selection is unavailable in this build.";
+        } else if (
+            snapshot.contains("error") && snapshot["error"].is_string()) {
+            status = clean_wide(snapshot["error"].get<std::string>(), 220);
+        } else {
+            status = selecting_
+                         ? L"Pinning the selected window..."
+                         : L"Use Automatic to restore Chrome discovery, or Cancel.";
+        }
+        draw_string(
+            graphics,
+            status,
+            small,
+            secondary_brush,
+            RectF(
+                static_cast<REAL>(banner.left + px(18)),
+                static_cast<REAL>(banner.top + px(40)),
+                static_cast<REAL>(banner_width - px(36)),
+                static_cast<REAL>(px(26))),
+            StringAlignmentCenter);
+
+        if (bool_field(hover, "found")) {
+            const int left =
+                integer_field(hover, "left") - virtual_bounds_.left;
+            const int top =
+                integer_field(hover, "top") - virtual_bounds_.top;
+            const int target_width = integer_field(hover, "width");
+            const int target_height = integer_field(hover, "height");
+            if (target_width > 0 && target_height > 0) {
+                const RECT target{
+                    left, top, left + target_width, top + target_height};
+                const bool eligible = bool_field(hover, "eligible");
+                if (!eligible) {
+                    graphics.FillRectangle(
+                        &unavailable_brush, rectf(target));
                 }
-                const int index = static_cast<int>(tokens_.size());
+                graphics.DrawRectangle(
+                    eligible ? &accent_pen : &unavailable_pen,
+                    rectf(target));
+
                 const std::wstring title =
                     clean_wide(
-                        string_field(item, "title").value_or(""),
-                        300);
-                const std::wstring executable =
-                    clean_wide(
-                        string_field(item, "executable").value_or(""),
+                        string_field(hover, "title").value_or(""),
                         120);
-                const int window_width =
-                    integer_field(item, "width");
-                const int window_height =
-                    integer_field(item, "height");
-                const std::wstring dimensions =
-                    std::to_wstring(window_width) + L" \u00d7 " +
-                    std::to_wstring(window_height);
-                LVITEMW row{};
-                row.mask = LVIF_TEXT;
-                row.iItem = index;
-                row.iSubItem = 0;
-                row.pszText = const_cast<wchar_t*>(title.c_str());
-                if (ListView_InsertItem(list_, &row) < 0) {
-                    continue;
+                const std::wstring reason =
+                    clean_wide(
+                        string_field(hover, "reason").value_or(""), 160);
+                const int label_width =
+                    std::min(width - px(32), px(520));
+                int label_left = std::clamp(
+                    left + px(12),
+                    px(16),
+                    std::max(px(16), width - label_width - px(16)));
+                int label_top = top + px(12);
+                if (label_top + px(66) > layer_height_ - px(64)) {
+                    label_top = top - px(76);
                 }
-                ListView_SetItemText(
-                    list_,
-                    index,
-                    1,
-                    const_cast<wchar_t*>(executable.c_str()));
-                ListView_SetItemText(
-                    list_,
-                    index,
-                    2,
-                    const_cast<wchar_t*>(dimensions.c_str()));
-                tokens_.push_back(token);
+                label_top = std::clamp(
+                    label_top,
+                    px(106),
+                    std::max(px(106), layer_height_ - px(150)));
+                const RECT label{
+                    label_left,
+                    label_top,
+                    label_left + label_width,
+                    label_top + px(66)};
+                graphics.FillRectangle(&panel_brush, rectf(label));
+                draw_string(
+                    graphics,
+                    title.empty() ? L"(Untitled window)" : title,
+                    body,
+                    text_brush,
+                    RectF(
+                        static_cast<REAL>(label.left + px(12)),
+                        static_cast<REAL>(label.top + px(8)),
+                        static_cast<REAL>(label_width - px(24)),
+                        static_cast<REAL>(px(24))));
+                draw_string(
+                    graphics,
+                    eligible
+                        ? L"Click once to pin this window."
+                        : reason,
+                    small,
+                    eligible ? secondary_brush : text_brush,
+                    RectF(
+                        static_cast<REAL>(label.left + px(12)),
+                        static_cast<REAL>(label.top + px(34)),
+                        static_cast<REAL>(label_width - px(24)),
+                        static_cast<REAL>(px(24))));
             }
         }
-        updating_ = false;
-        ListView_SetItemState(
-            list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
-        EnableWindow(use_, FALSE);
-    }
 
-    static std::wstring selected_window_status(
-        const Json& window,
-        bool last_known = false) {
-        const std::wstring title =
-            clean_wide(
-                string_field(window, "title").value_or(""),
-                last_known ? 40 : 56);
-        const std::wstring executable =
-            clean_wide(
-                string_field(window, "executable").value_or(""),
-                last_known ? 28 : 36);
-        const int window_width = integer_field(window, "width");
-        const int window_height = integer_field(window, "height");
-        const std::wstring title_text =
-            title.empty() ? std::wstring(L"(untitled window)") : title;
-        const std::wstring executable_text =
-            executable.empty()
-                ? std::wstring(L"Unknown executable")
-                : executable;
-        const std::wstring dimensions_text =
-            std::to_wstring(window_width) + L" \u00d7 " +
-            std::to_wstring(window_height);
-        if (last_known) {
-            return L"Manual target remains selected.\nLast known: " +
-                   title_text + L" \u00b7 " + executable_text +
-                   L" \u00b7 " + dimensions_text;
+        const HDC screen = GetDC(nullptr);
+        if (screen == nullptr) {
+            return;
         }
-        return L"Selected: " + title_text + L"\n" +
-               executable_text + L"  \u00b7  " + dimensions_text;
+        POINT destination{virtual_bounds_.left, virtual_bounds_.top};
+        SIZE size{layer_width_, layer_height_};
+        POINT source{0, 0};
+        BLENDFUNCTION blend{};
+        blend.BlendOp = AC_SRC_OVER;
+        blend.SourceConstantAlpha = 255;
+        blend.AlphaFormat = AC_SRC_ALPHA;
+        (void)UpdateLayeredWindow(
+            window_,
+            screen,
+            &destination,
+            &size,
+            layer_dc_,
+            &source,
+            0,
+            &blend,
+            ULW_ALPHA);
+        ReleaseDC(nullptr, screen);
     }
 
-    void update_bridge() {
+    REAL rpx(int logical) const {
+        return static_cast<REAL>(px(logical));
+    }
+
+    void request_hover_if_due(bool force) {
+        if (!hover_point_.has_value() || selecting_) {
+            return;
+        }
+        const ULONGLONG now = GetTickCount64();
+        if (!force && now - last_hover_at_ < 30) {
+            hover_pending_ = true;
+            return;
+        }
+        last_hover_at_ = now;
+        hover_pending_ = false;
+        application_.request_manual_hover(*hover_point_);
+    }
+
+    void update_from_application() {
         const Json next = application_.manual_snapshot();
-        const int revision = integer_field(next, "revision");
-        const Json windows =
-            next.contains("windows") && next["windows"].is_array()
-                ? next["windows"]
-                : Json::array();
-        if (windows != windows_) {
-            windows_ = windows;
-            rebuild_windows(windows_);
-        }
-        if (revision == revision_ && next == bridge_) {
-            return;
-        }
-        bridge_ = next;
-        revision_ = revision;
-        const bool supported =
-            bool_field(next, "supported");
-        const std::string mode =
-            string_field(next, "mode").value_or("automatic");
-        const std::optional<std::string> selected_id_value =
-            string_field(next, "selected_id");
-        const std::string selected_id =
-            selected_id_value.value_or("");
-        const bool has_selected_id =
-            selected_id_value.has_value() && !selected_id.empty();
-        const Json* selected_window = nullptr;
-        if (mode == "manual" && has_selected_id) {
-            for (const Json& window : windows_) {
-                if (string_field(window, "selection_token").value_or("") ==
-                    selected_id) {
-                    selected_window = &window;
-                    break;
-                }
+        if (selecting_ &&
+            integer_field(next, "selection_revision") >
+                selection_revision_) {
+            selecting_ = false;
+            const bool selection_error =
+                next.contains("error") && next["error"].is_string();
+            const auto selected = string_field(next, "selected_id");
+            if (selected.has_value() && !selected->empty() &&
+                !selection_error) {
+                application_.request_manual_picker_closed();
+                DestroyWindow(window_);
+                return;
             }
         }
-        // Refreshing rotates candidate tokens while the backend binding keeps
-        // its original selected_id. Retain the exact row as last-known state.
-        if (mode != "manual" || !has_selected_id) {
-            cached_selected_id_.clear();
-            cached_selected_window_.reset();
-        } else if (selected_window != nullptr) {
-            cached_selected_id_ = selected_id;
-            cached_selected_window_ = *selected_window;
-        } else if (cached_selected_id_ != selected_id) {
-            cached_selected_id_.clear();
-            cached_selected_window_.reset();
+        if (next != cached_snapshot_) {
+            cached_snapshot_ = next;
+            render();
         }
-        SetWindowTextW(
-            mode_,
-            mode == "manual"
-                ? L"Manual mode \u00b7 paused while choosing"
-                : L"Automatic Chrome discovery \u00b7 paused while choosing");
-        std::wstring message;
-        if (!supported) {
-            message =
-                L"Manual selection is unavailable in this build.";
-        } else if (
-            next.contains("error") && next["error"].is_string()) {
-            message = clean_wide(next["error"].get<std::string>(), 260);
-        } else if (mode == "manual") {
-            if (selected_window != nullptr) {
-                message = selected_window_status(*selected_window);
-            } else if (!has_selected_id) {
-                message =
-                    L"Selected window lost: it is not in the current list.\n"
-                    L"Choose another window or return to Automatic.";
-            } else if (
-                cached_selected_window_.has_value() &&
-                cached_selected_id_ == selected_id) {
-                message = selected_window_status(
-                    *cached_selected_window_, true);
-            } else {
-                message =
-                    L"Manual target remains selected.\n"
-                    L"Refresh or return to Automatic.";
-            }
-        } else if (windows_.empty()) {
-            message =
-                L"No eligible windows are listed.\n"
-                L"Open or restore a window, then choose Refresh.";
-        } else {
-            message =
-                L"Choose a row, then select Use window.\n"
-                L"Refresh lists windows again.";
-        }
-        SetWindowTextW(error_, message.c_str());
-        EnableWindow(refresh_, supported ? TRUE : FALSE);
     }
 
-    void use_selected() {
-        const int index = ListView_GetNextItem(
-            list_, -1, LVNI_SELECTED);
-        if (index < 0 ||
-            static_cast<std::size_t>(index) >= tokens_.size()) {
+    void select_at(Point point) {
+        if (selecting_) {
             return;
         }
-        EnableWindow(use_, FALSE);
-        application_.request_manual_selection(
-            tokens_[static_cast<std::size_t>(index)]);
-        SetWindowTextW(error_, L"Applying selected window...");
+        // The backend re-resolves this exact screen point. The cached hover is
+        // presentation state only and is never used as a selection token.
+        selecting_ = true;
+        selection_revision_ =
+            integer_field(cached_snapshot_, "selection_revision");
+        application_.request_manual_selection(point);
+        render();
     }
 
-    void close() {
+    void select_at_cursor() {
+        POINT point{};
+        if (GetCursorPos(&point)) {
+            select_at(Point{point.x, point.y});
+        }
+    }
+
+    Point cursor_point(LPARAM lparam) const {
+        POINT point{
+            GET_X_LPARAM(lparam),
+            GET_Y_LPARAM(lparam)};
+        ClientToScreen(window_, &point);
+        return Point{point.x, point.y};
+    }
+
+    void hide_and_cancel() {
         application_.request_manual_picker_closed();
         DestroyWindow(window_);
     }
 
+    void restore_automatic() {
+        application_.request_manual_reset();
+        application_.request_manual_picker_closed();
+        DestroyWindow(window_);
+    }
+
+    void close() {
+        hide_and_cancel();
+    }
+
     LRESULT handle(UINT message, WPARAM wparam, LPARAM lparam) {
         switch (message) {
-        case WM_SIZE:
-            layout_controls();
+        case WM_NCHITTEST:
+            return HTCLIENT;
+        case WM_MOUSEACTIVATE:
+            return MA_ACTIVATE;
+        case WM_MOUSEMOVE:
+            hover_point_ = cursor_point(lparam);
+            request_hover_if_due(false);
             return 0;
         case WM_DPICHANGED: {
             dpi_ = static_cast<UINT>(HIWORD(wparam));
-            create_fonts();
-            apply_fonts();
-            const auto* suggested =
-                reinterpret_cast<const RECT*>(lparam);
+            release_layer();
+            layout_controls();
+            render();
+            return 0;
+        }
+        case WM_DISPLAYCHANGE:
+            create_window();
             SetWindowPos(
                 window_,
-                nullptr,
-                suggested->left,
-                suggested->top,
-                suggested->right - suggested->left,
-                suggested->bottom - suggested->top,
-                SWP_NOZORDER | SWP_NOACTIVATE);
+                HWND_TOPMOST,
+                virtual_bounds_.left,
+                virtual_bounds_.top,
+                virtual_bounds_.width(),
+                virtual_bounds_.height(),
+                SWP_NOACTIVATE | SWP_SHOWWINDOW);
             layout_controls();
+            render();
             return 0;
-        }
-        case WM_GETMINMAXINFO: {
-            auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
-            info->ptMinTrackSize.x = px(560);
-            info->ptMinTrackSize.y = px(340);
-            return 0;
-        }
         case WM_COMMAND:
             switch (LOWORD(wparam)) {
-            case kManualRefresh:
-                if (HIWORD(wparam) == BN_CLICKED) {
-                    application_.request_manual_refresh();
-                }
+            case IDCANCEL:
+                close();
                 return 0;
             case kManualAutomatic:
                 if (HIWORD(wparam) == BN_CLICKED) {
-                    application_.request_manual_reset();
-                    // Reset clears the candidate registry, so enumerate again
-                    // before the retained list can be used.
-                    application_.request_manual_refresh();
-                }
-                return 0;
-            case kManualUse:
-                if (HIWORD(wparam) == BN_CLICKED) {
-                    use_selected();
+                    restore_automatic();
                 }
                 return 0;
             case kManualCancel:
@@ -2183,58 +2201,73 @@ private:
                 break;
             }
             break;
-        case WM_NOTIFY: {
-            const auto* notification =
-                reinterpret_cast<const NMHDR*>(lparam);
-            if (notification != nullptr &&
-                notification->idFrom == kManualWindowList &&
-                notification->code == LVN_ITEMCHANGED &&
-                !updating_) {
-                const auto* changed =
-                    reinterpret_cast<const NMLISTVIEW*>(lparam);
-                if ((changed->uNewState & LVIS_SELECTED) != 0 &&
-                    (changed->uOldState & LVIS_SELECTED) == 0) {
-                    EnableWindow(use_, TRUE);
-                } else if (
-                    (changed->uNewState & LVIS_SELECTED) == 0) {
-                    EnableWindow(use_, FALSE);
-                }
-            }
-            break;
-        }
-        case WM_TIMER:
-            if (wparam == kManualPickerTimer) {
-                update_bridge();
+        case WM_PARENTNOTIFY:
+            if (LOWORD(wparam) == WM_RBUTTONDOWN) {
+                close();
                 return 0;
             }
             break;
+        case WM_CONTEXTMENU:
+            close();
+            return 0;
+        case WM_TIMER:
+            if (wparam == kManualPickerTimer) {
+                if (hover_pending_) {
+                    request_hover_if_due(true);
+                }
+                update_from_application();
+                return 0;
+            }
+            break;
+        case WM_LBUTTONDOWN:
+            SetCapture(window_);
+            select_at(cursor_point(lparam));
+            ReleaseCapture();
+            return 0;
+        case WM_RBUTTONDOWN:
+            close();
+            return 0;
+        case WM_KEYDOWN:
+            if (wparam == VK_ESCAPE) {
+                close();
+                return 0;
+            }
+            if (wparam == VK_RETURN) {
+                select_at_cursor();
+                return 0;
+            }
+            break;
+        case WM_SETCURSOR:
+            if (LOWORD(lparam) == HTCLIENT) {
+                const bool unavailable =
+                    cached_snapshot_.contains("hover") &&
+                    cached_snapshot_["hover"].is_object() &&
+                    bool_field(cached_snapshot_["hover"], "found") &&
+                    !bool_field(cached_snapshot_["hover"], "eligible");
+                SetCursor(LoadCursorW(
+                    nullptr, unavailable ? IDC_NO : IDC_ARROW));
+                return TRUE;
+            }
+            break;
+        case WM_ACTIVATE:
+            if (LOWORD(wparam) == WA_INACTIVE && activated_once_) {
+                close();
+            } else if (LOWORD(wparam) != WA_INACTIVE) {
+                activated_once_ = true;
+                SetFocus(cancel_);
+            }
+            return 0;
+        case WM_SHOWWINDOW:
+            if (wparam != FALSE) {
+                layout_controls();
+                render();
+            }
+            return 0;
         case WM_ERASEBKGND:
             return 1;
-        case WM_CTLCOLORSTATIC: {
-            HDC device = reinterpret_cast<HDC>(wparam);
-            SetBkMode(device, TRANSPARENT);
-            SetTextColor(device, kTextGdi);
-            return reinterpret_cast<LRESULT>(background_brush_);
-        }
-        case WM_PAINT: {
-            PAINTSTRUCT paint{};
-            HDC device = BeginPaint(window_, &paint);
-            RECT client{};
-            GetClientRect(window_, &client);
-            FillRect(device, &client, background_brush_);
-            SetBkMode(device, TRANSPARENT);
-            SetTextColor(device, kTextGdi);
-            RECT title{margin_for_paint(), px(14),
-                       client.right - px(16), px(44)};
-            draw_text(
-                device,
-                L"Choose the PiP window",
-                title,
-                kTextGdi,
-                title_font_);
-            EndPaint(window_, &paint);
+        case WM_PAINT:
+            ValidateRect(window_, nullptr);
             return 0;
-        }
         case WM_CLOSE:
             close();
             return 0;
@@ -2244,36 +2277,28 @@ private:
         return DefWindowProcW(window_, message, wparam, lparam);
     }
 
-    int margin_for_paint() const {
-        return px(16);
-    }
-
     HWND window_{};
     HWND destroyed_window_{};
     HWND owner_{};
     AdaptiveApplication& application_;
     ControlPanel& panel_;
-    HWND help_{};
-    HWND mode_{};
-    HWND error_{};
-    HWND list_{};
-    HWND refresh_{};
     HWND automatic_{};
-    HWND use_{};
     HWND cancel_{};
-    HFONT title_font_{};
-    HFONT body_font_{};
-    HFONT semibold_font_{};
-    HFONT small_font_{};
-    HBRUSH background_brush_{};
+    HDC layer_dc_{};
+    HBITMAP layer_bitmap_{};
+    HGDIOBJ layer_old_bitmap_{};
+    void* layer_pixels_{};
+    int layer_width_{};
+    int layer_height_{};
+    Rect virtual_bounds_;
     UINT dpi_{96};
-    int revision_{-1};
-    bool updating_{};
-    Json bridge_ = Json::object();
-    Json windows_ = Json::array();
-    std::vector<std::string> tokens_;
-    std::string cached_selected_id_;
-    std::optional<Json> cached_selected_window_;
+    Json cached_snapshot_;
+    std::optional<Point> hover_point_;
+    ULONGLONG last_hover_at_{};
+    bool hover_pending_{};
+    bool selecting_{};
+    bool activated_once_{};
+    int selection_revision_{};
 
     friend class ControlPanel;
 };
@@ -3804,7 +3829,6 @@ void ControlPanel::open_manual_picker() {
         IsWindow(manual_picker_->window())) {
         ShowWindow(manual_picker_->window(), SW_RESTORE);
         SetForegroundWindow(manual_picker_->window());
-        application_.request_manual_refresh();
         return;
     }
     delete retired_manual_picker_;
@@ -3988,7 +4012,7 @@ void register_classes() {
         GetSystemMetrics(SM_CXSMICON),
         GetSystemMetrics(SM_CYSMICON),
         LR_DEFAULTCOLOR | LR_SHARED));
-    chooser.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    chooser.hCursor = LoadCursorW(nullptr, IDC_CROSS);
     chooser.hbrBackground = nullptr;
     chooser.lpszClassName = kManualPickerClass;
     if (RegisterClassExW(&chooser) == 0 &&
@@ -4027,10 +4051,6 @@ private:
 
 bool run_platform_ui(AdaptiveApplication& application) {
     enable_per_monitor_dpi();
-    INITCOMMONCONTROLSEX controls{};
-    controls.dwSize = sizeof(controls);
-    controls.dwICC = ICC_LISTVIEW_CLASSES;
-    (void)InitCommonControlsEx(&controls);
     GdiplusSession gdiplus;
     if (!gdiplus.started()) {
         return false;

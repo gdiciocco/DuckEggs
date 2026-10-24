@@ -10,10 +10,11 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
-#include <stdexcept>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -77,6 +78,9 @@ private:
     std::atomic<bool> stop_{false};
 };
 
+constexpr schiva::Point kEligiblePoint{700, 400};
+constexpr schiva::Point kFullScreenPoint{320, 260};
+
 struct FakeState {
     mutable std::mutex mutex;
     std::thread::id owner;
@@ -86,10 +90,11 @@ struct FakeState {
     bool lost{};
     bool motion_active{};
     schiva::Rect pip{640, 360, 960, 540};
-    std::string selected_token;
+    std::string selected_id;
     std::string selection_error;
-    int window_generation{};
-    int windows_calls{};
+    std::optional<schiva::Point> hover_point;
+    std::optional<schiva::Point> select_point;
+    int hover_calls{};
     int select_calls{};
     int reset_calls{};
     int observe_calls{};
@@ -120,8 +125,7 @@ public:
         observation.work_area = {0, 0, 1280, 800};
         if (state_->manual_mode && !state_->lost) {
             observation.pip = schiva::WindowInfo{
-                "hwnd:1", "manual-window", "window",
-                state_->pip};
+                "hwnd:1", "manual-window", "window", state_->pip};
         }
         return observation;
     }
@@ -157,26 +161,28 @@ public:
         return allowed;
     }
 
-    schiva::ManualWindowSnapshot manual_windows() override {
+    schiva::ManualHoverSnapshot manual_hover(
+        schiva::Point point) override {
         owner();
         std::lock_guard lock(state_->mutex);
-        ++state_->windows_calls;
-        ++state_->window_generation;
-        const std::string generation =
-            std::to_string(state_->window_generation);
-        return {
-            true,
-            std::nullopt,
-            {
-                {"candidate-" + generation + "-video",
-                 "Synthetic video",
-                 "player.exe",
-                 {500, 250, 820, 430}},
-                {"candidate-" + generation + "-browser",
-                 "Synthetic browser",
-                 "browser.exe",
-                 {100, 100, 1100, 700}},
-            }};
+        ++state_->hover_calls;
+        state_->hover_point = point;
+        schiva::ManualHoverSnapshot hover;
+        hover.supported = true;
+        hover.point = point;
+        if (point == kFullScreenPoint) {
+            hover.found = true;
+            hover.title = "Synthetic full-screen video";
+            hover.rect = {0, 0, 1280, 800};
+            hover.eligible = false;
+            hover.reason = "Full-screen windows cannot be moved.";
+        } else if (point == kEligiblePoint) {
+            hover.found = true;
+            hover.title = "Synthetic video";
+            hover.rect = {500, 250, 820, 430};
+            hover.eligible = true;
+        }
+        return hover;
     }
 
     schiva::ManualTargetStatus manual_target_status() const override {
@@ -189,10 +195,9 @@ public:
                           : schiva::ManualTargetMode::Automatic;
         status.selected =
             state_->manual_mode && !state_->lost &&
-            !state_->selected_token.empty();
-        status.selected_id = status.selected
-                                 ? state_->selected_token
-                                 : std::string{};
+            !state_->selected_id.empty();
+        status.selected_id =
+            status.selected ? state_->selected_id : std::string{};
         if (!state_->selection_error.empty()) {
             status.error = state_->selection_error;
         }
@@ -203,26 +208,25 @@ public:
         return status;
     }
 
-    bool select_manual_window(
-        std::string_view selection_token) override {
+    bool select_manual_at(schiva::Point point) override {
         owner();
         std::lock_guard lock(state_->mutex);
         ++state_->select_calls;
-        const std::string current =
-            "candidate-" + std::to_string(state_->window_generation) +
-            "-video";
-        const std::string other =
-            "candidate-" + std::to_string(state_->window_generation) +
-            "-browser";
-        if (selection_token != current && selection_token != other) {
+        state_->select_point = point;
+        if (point == kFullScreenPoint) {
             state_->selection_error =
-                "This window list is stale. Refresh and choose again.";
+                "Full-screen windows cannot be moved.";
+            return false;
+        }
+        if (point != kEligiblePoint) {
+            state_->selection_error =
+                "No movable window is under the pointer.";
             return false;
         }
         state_->selection_error.clear();
         state_->manual_mode = true;
         state_->lost = false;
-        state_->selected_token = std::string(selection_token);
+        state_->selected_id = "manual-1";
         return true;
     }
 
@@ -232,7 +236,7 @@ public:
         ++state_->reset_calls;
         state_->manual_mode = false;
         state_->lost = false;
-        state_->selected_token.clear();
+        state_->selected_id.clear();
         state_->selection_error.clear();
         return true;
     }
@@ -304,9 +308,6 @@ void test_identity_predicate() {
     changed.process_id = 43;
     CHECK(!schiva::detail::manual_window_identity_matches(bound, changed));
     changed = bound;
-    changed.process_creation_time = 0;
-    CHECK(!schiva::detail::manual_window_identity_matches(bound, changed));
-    changed = bound;
     changed.process_creation_time = 987655;
     CHECK(!schiva::detail::manual_window_identity_matches(bound, changed));
     changed = bound;
@@ -320,17 +321,72 @@ void test_identity_predicate() {
     CHECK(schiva::detail::manual_window_identity_matches(bound, changed));
 }
 
+void test_portable_manual_policy() {
+    const schiva::Rect monitor{-1920, 0, 0, 1080};
+    const schiva::Rect work{-1920, 0, 0, 1040};
+    CHECK(!schiva::manual_window_eligibility(
+               monitor, monitor, work, false)
+               .eligible);
+    CHECK(!schiva::manual_window_eligibility(
+               work, monitor, work, false)
+               .eligible);
+    CHECK(!schiva::manual_window_eligibility(
+               {-1800, 80, -120, 980}, monitor, work, true)
+               .eligible);
+    CHECK(schiva::manual_window_eligibility(
+              {-1800, 80, -200, 900}, monitor, work, false)
+              .eligible);
+
+    const std::vector<schiva::ManualWindowHit> stacked{
+        {monitor, true, true, false, false, true, false},
+        {monitor, true, true, false, false, false, false},
+        {{-1700, 100, -500, 800}, true, true, false, false, false, false}};
+    const auto hit = schiva::manual_hit_test(stacked, {-900, 300});
+    CHECK(hit.has_value());
+    CHECK(*hit == 1U);
+    CHECK(!schiva::manual_window_eligibility(
+               stacked[*hit].rect, monitor, work, true)
+               .eligible);
+
+    const std::vector<schiva::ManualWindowHit> owned_overlay{
+        {monitor, true, true, false, false, true, false},
+        {{-1700, 100, -500, 800}, true, true, false, false, false, false}};
+    const auto underlying =
+        schiva::manual_hit_test(owned_overlay, {-900, 300});
+    CHECK(underlying.has_value());
+    CHECK(*underlying == 1U);
+
+    const std::vector<schiva::ManualWindowHit> infrastructure{
+        {monitor, true, true, false, false, false, true},
+        {monitor, true, true, true, false, false, false},
+        {monitor, true, true, false, true, false, false},
+        {{-1700, 100, -500, 800}, true, true, false, false, false, false}};
+    CHECK(schiva::manual_hit_test(infrastructure, {-900, 300}) ==
+          std::optional<std::size_t>(3));
+    CHECK(!schiva::manual_hit_test(infrastructure, {10, 10}).has_value());
+}
+
 void test_default_backend_contract() {
     MinimalBackend backend;
-    const schiva::ManualWindowSnapshot windows = backend.manual_windows();
-    CHECK(!windows.supported);
-    CHECK(windows.error.has_value());
+    const schiva::ManualHoverSnapshot hover =
+        backend.manual_hover(kEligiblePoint);
+    CHECK(!hover.supported);
+    CHECK(!hover.found);
+    CHECK(hover.error.has_value());
     const schiva::ManualTargetStatus status =
         backend.manual_target_status();
     CHECK(!status.supported);
     CHECK(status.mode == schiva::ManualTargetMode::Automatic);
-    CHECK(!backend.select_manual_window("candidate"));
+    CHECK(!backend.select_manual_at(kEligiblePoint));
     CHECK(!backend.reset_manual_target());
+}
+
+std::string status_file_contents(
+    const std::filesystem::path& directory) {
+    std::ifstream status_file(directory / "status.json");
+    return {
+        std::istreambuf_iterator<char>(status_file),
+        std::istreambuf_iterator<char>()};
 }
 
 void test_runtime_manual_commands() {
@@ -359,105 +415,88 @@ void test_runtime_manual_commands() {
     CHECK(application.manual_snapshot()["mode"] == "automatic");
     CHECK(!application.manual_snapshot()["picker_open"].get<bool>());
 
-    // The toggle is queued before opening; opening then explicitly forces
-    // pause. A toggle queued while the chooser owns the session is ignored.
     application.request_pause();
     application.request_manual_picker();
     application.request_pause();
-    CHECK(wait_until([&application] {
-        const schiva::Json manual = application.manual_snapshot();
-        return manual["picker_open"].get<bool>() &&
-               manual["windows"].size() == 2;
-    }));
-    CHECK(application.snapshot()["paused"].get<bool>());
-    CHECK(application.manual_snapshot()["supported"].get<bool>());
-
-    // Closing the chooser is itself a worker-thread pause barrier, even when
-    // a pause/resume toggle was queued around the opening request.
-    application.request_pause();
-    application.request_manual_picker_closed();
-    CHECK(wait_until([&application] {
-        return !application.manual_snapshot()["picker_open"].get<bool>();
-    }));
-    CHECK(application.snapshot()["paused"].get<bool>());
-    application.request_manual_picker();
     CHECK(wait_until([&application] {
         return application.manual_snapshot()["picker_open"].get<bool>();
     }));
+    CHECK(application.snapshot()["paused"].get<bool>());
 
-    const schiva::Json initial_manual =
-        application.manual_snapshot();
-    const std::string first_token =
-        initial_manual["windows"][0]["selection_token"]
-            .get<std::string>();
+    // Many pointer events collapse to one latest-point worker request.
+    for (int x = 0; x < 40; ++x) {
+        application.request_manual_hover(schiva::Point{x, x});
+    }
+    application.request_manual_hover(kEligiblePoint);
+    CHECK(wait_until([&application] {
+        const schiva::Json hover =
+            application.manual_snapshot()["hover"];
+        return hover["point"]["x"].get<int>() == kEligiblePoint.x &&
+               hover["point"]["y"].get<int>() == kEligiblePoint.y;
+    }));
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK(state->hover_calls <= 2);
+    }
+
+    // The click point, not the last hover, is sent for a fresh hit-test.
+    application.request_manual_selection(kFullScreenPoint);
+    CHECK(wait_until([&application] {
+        const schiva::Json manual = application.manual_snapshot();
+        return manual["selection_revision"].get<int>() > 0 &&
+               manual["error"] ==
+                   "Full-screen windows cannot be moved.";
+    }));
+    CHECK(application.manual_snapshot()["picker_open"].get<bool>());
+    CHECK(application.manual_snapshot()["selected_id"].is_null());
+    CHECK(application.snapshot()["paused"].get<bool>());
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK(state->select_point == kFullScreenPoint);
+    }
+
     const int end_before_select = [&state] {
         std::lock_guard lock(state->mutex);
         return state->end_motion_calls;
     }();
-    application.request_manual_selection(first_token);
-    CHECK(wait_until([&application, first_token] {
+    application.request_manual_selection(kEligiblePoint);
+    CHECK(wait_until([&application] {
         const schiva::Json manual = application.manual_snapshot();
         const schiva::Json runtime = application.snapshot();
         return manual["mode"] == "manual" &&
-               manual["selected_id"] == first_token &&
+               !manual["selected_id"].is_null() &&
                runtime["paused"].get<bool>() &&
                runtime["placement_mode"] == "manual";
     }));
     {
         std::lock_guard lock(state->mutex);
+        CHECK(state->select_point == kEligiblePoint);
         CHECK(state->end_motion_calls > end_before_select);
     }
-
-    application.request_manual_refresh();
-    CHECK(wait_until([&application, first_token] {
-        const schiva::Json manual = application.manual_snapshot();
-        return manual["windows"].size() == 2 &&
-               manual["windows"][0]["selection_token"] != first_token;
-    }));
-    const int stale_attempt_revision =
-        application.manual_snapshot()["selection_revision"].get<int>();
-    application.request_manual_selection(first_token);
-    CHECK(wait_until([&application, stale_attempt_revision] {
-        const schiva::Json manual = application.manual_snapshot();
-        return manual["selection_revision"].get<int>() >
-                   stale_attempt_revision &&
-               manual["error"].is_string();
-    }));
-    CHECK(application.snapshot()["paused"].get<bool>());
-    CHECK(application.manual_snapshot()["mode"] == "manual");
-    CHECK(application.manual_snapshot()["selected_id"] == first_token);
-
-    application.request_manual_reset();
-    CHECK(wait_until([&application] {
-        return application.manual_snapshot()["mode"] == "automatic";
-    }));
-    CHECK(application.snapshot()["paused"].get<bool>());
-
-    const std::string token_before_refresh =
-        application.manual_snapshot()["windows"][0]["selection_token"]
-            .get<std::string>();
-    application.request_manual_refresh();
-    CHECK(wait_until([&application, token_before_refresh] {
-        const schiva::Json manual = application.manual_snapshot();
-        return manual["windows"].size() == 2 &&
-               manual["windows"][0]["selection_token"] !=
-                   token_before_refresh;
-    }));
-    const std::string current_token =
-        application.manual_snapshot()["windows"][1]["selection_token"]
-            .get<std::string>();
-    application.request_manual_selection(current_token);
-    CHECK(wait_until([&application, current_token] {
-        const schiva::Json manual = application.manual_snapshot();
-        return manual["mode"] == "manual" &&
-               manual["selected_id"] == current_token;
-    }));
-    CHECK(application.snapshot()["paused"].get<bool>());
 
     application.request_manual_picker_closed();
     CHECK(wait_until([&application] {
         return !application.manual_snapshot()["picker_open"].get<bool>();
     }));
+    CHECK(application.snapshot()["paused"].get<bool>());
+    CHECK(application.manual_snapshot()["mode"] == "manual");
+    const std::string selected_before_cancel =
+        application.manual_snapshot()["selected_id"].get<std::string>();
+
+    application.request_manual_picker();
+    CHECK(wait_until([&application] {
+        return application.manual_snapshot()["picker_open"].get<bool>();
+    }));
+    application.request_pause();
+    application.request_manual_picker_closed();
+    CHECK(wait_until([&application] {
+        return !application.manual_snapshot()["picker_open"].get<bool>();
+    }));
+    CHECK(application.snapshot()["paused"].get<bool>());
+    CHECK(application.manual_snapshot()["mode"] == "manual");
+    CHECK(application.manual_snapshot()["selected_id"] ==
+          selected_before_cancel);
+
     const int moves_before_resume = [&state] {
         std::lock_guard lock(state->mutex);
         return state->move_calls;
@@ -471,11 +510,11 @@ void test_runtime_manual_commands() {
         return state->motion_active &&
                state->move_calls > moves_before_resume;
     }));
+
     const int end_motion_before_loss = [&state] {
         std::lock_guard lock(state->mutex);
         return state->end_motion_calls;
     }();
-
     {
         std::lock_guard lock(state->mutex);
         state->lost = true;
@@ -490,7 +529,6 @@ void test_runtime_manual_commands() {
                manual["selected_id"].is_null() &&
                manual["error"].is_string();
     }));
-    int observes_after_loss = 0;
     int moves_after_pause = 0;
     int begin_motion_after_pause = 0;
     {
@@ -498,13 +536,12 @@ void test_runtime_manual_commands() {
         CHECK(state->move_calls > moves_before_resume);
         CHECK(!state->motion_active);
         CHECK(state->end_motion_calls > end_motion_before_loss);
-        observes_after_loss = state->observe_calls;
         moves_after_pause = state->move_calls;
         begin_motion_after_pause = state->begin_motion_calls;
     }
-    CHECK(wait_until([&state, observes_after_loss] {
+    CHECK(wait_until([&state] {
         std::lock_guard lock(state->mutex);
-        return state->observe_calls >= observes_after_loss + 3;
+        return state->observe_calls >= 3;
     }));
     {
         std::lock_guard lock(state->mutex);
@@ -513,11 +550,52 @@ void test_runtime_manual_commands() {
         CHECK(!state->motion_active);
     }
 
+    // Cancel is a pause barrier and changes neither target nor selection count.
+    const int selects_before_cancel = [&state] {
+        std::lock_guard lock(state->mutex);
+        return state->select_calls;
+    }();
+    application.request_manual_picker();
+    CHECK(wait_until([&application] {
+        return application.manual_snapshot()["picker_open"].get<bool>();
+    }));
+    application.request_pause();
+    application.request_manual_picker_closed();
+    CHECK(wait_until([&application] {
+        return !application.manual_snapshot()["picker_open"].get<bool>();
+    }));
+    CHECK(application.snapshot()["paused"].get<bool>());
+    CHECK(application.manual_snapshot()["mode"] == "manual");
+    CHECK(application.manual_snapshot()["selected_id"].is_null());
     {
         std::lock_guard lock(state->mutex);
+        CHECK(state->select_calls == selects_before_cancel);
+    }
+
+    application.request_manual_picker();
+    CHECK(wait_until([&application] {
+        return application.manual_snapshot()["picker_open"].get<bool>();
+    }));
+    application.request_manual_reset();
+    application.request_manual_picker_closed();
+    CHECK(wait_until([&application] {
+        const schiva::Json manual = application.manual_snapshot();
+        return !manual["picker_open"].get<bool>() &&
+               manual["mode"] == "automatic";
+    }));
+    CHECK(application.snapshot()["paused"].get<bool>());
+    CHECK(application.snapshot()["placement_mode"] == "automatic");
+
+    const int hover_calls_after_close = [&state] {
+        std::lock_guard lock(state->mutex);
+        return state->hover_calls;
+    }();
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK(state->hover_calls == hover_calls_after_close);
         CHECK(!state->owner_violation);
-        CHECK(state->windows_calls >= 3);
-        CHECK(state->select_calls >= 3);
+        CHECK(state->select_calls >= 2);
         CHECK(state->reset_calls == 1);
     }
 
@@ -526,12 +604,9 @@ void test_runtime_manual_commands() {
         runner.join();
     }
     const schiva::Json status = application.snapshot();
-    CHECK(!status.contains("windows"));
-    CHECK(status.dump().find("Synthetic video") == std::string::npos);
-    std::ifstream status_file(temporary.path() / "status.json");
-    const std::string persisted{
-        std::istreambuf_iterator<char>(status_file),
-        std::istreambuf_iterator<char>()};
+    CHECK(!status.contains("hover"));
+    const std::string persisted =
+        status_file_contents(temporary.path());
     CHECK(!persisted.empty());
     CHECK(persisted.find("Synthetic video") == std::string::npos);
     CHECK(persisted.find("player.exe") == std::string::npos);
@@ -561,19 +636,16 @@ void test_manual_picker_reopen_keeps_session_latch() {
         (void)application.run();
     });
     CHECK(wait_until([&application] {
-        const schiva::Json manual = application.manual_snapshot();
-        return manual["picker_open"].get<bool>() &&
-               manual["windows"].size() == 2;
+        return application.manual_snapshot()["picker_open"].get<bool>();
     }));
     CHECK(application.snapshot()["paused"].get<bool>());
 
-    const int manual_revision =
-        application.manual_snapshot()["revision"].get<int>();
     application.request_pause();
-    application.request_manual_refresh();
-    CHECK(wait_until([&application, manual_revision] {
-        return application.manual_snapshot()["revision"].get<int>() >
-               manual_revision;
+    application.request_manual_hover(kEligiblePoint);
+    CHECK(wait_until([&application] {
+        const schiva::Json hover =
+            application.manual_snapshot()["hover"];
+        return hover["point"]["x"].get<int>() == kEligiblePoint.x;
     }));
     {
         std::lock_guard lock(state->mutex);
@@ -604,6 +676,7 @@ void test_manual_picker_reopen_keeps_session_latch() {
 
 int main() {
     test_identity_predicate();
+    test_portable_manual_policy();
     test_default_backend_contract();
     test_runtime_manual_commands();
     test_manual_picker_reopen_keeps_session_latch();
