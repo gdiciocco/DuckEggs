@@ -242,6 +242,35 @@ public:
         set_paused(!controller_.paused());
     }
 
+    void prepare_target_change() {
+        controller_.set_paused(true);
+        backend_.set_paused(true);
+        try {
+            backend_.end_motion();
+        } catch (...) {
+        }
+        end_backend_motion();
+        last_observation_.reset();
+        last_decision_.reset();
+        last_error_.reset();
+        legacy_motion_active_ = false;
+        motion_active_ = false;
+        motion_moving_ = false;
+        timing_target_hz_ = kPausedHz;
+    }
+
+    ManualTargetStatus backend_manual_status() const {
+        try {
+            return backend_.manual_target_status();
+        } catch (...) {
+            ManualTargetStatus status;
+            status.supported = false;
+            status.error =
+                "The native manual-selection state is unavailable.";
+            return status;
+        }
+    }
+
     Json tick(double now) {
         const double tick_started = now_seconds();
         const double expected_period = 1.0 / timing_target_hz_;
@@ -294,6 +323,20 @@ public:
             backend_.observe(now, include_visual);
         timing_.observe_.add(now_seconds() - observe_started);
         last_observation_ = observation;
+
+        const ManualTargetStatus manual = backend_manual_status();
+        if (!controller_.paused() &&
+            manual.mode == ManualTargetMode::Manual &&
+            !manual.selected) {
+            if (motion_active_from_status(controller_status())) {
+                controller_.movement_failed();
+            }
+            end_backend_motion();
+            controller_.set_paused(true);
+            backend_.set_paused(true);
+            last_error_ = manual.error.value_or(
+                "The selected manual window is no longer available.");
+        }
 
         const double controller_started = now_seconds();
         Decision decision = controller_.tick(now, observation);
@@ -462,6 +505,7 @@ private:
                 {"role", observation.foreground->role}};
         }
         const Json capabilities = backend_.capabilities();
+        const ManualTargetStatus manual = backend_manual_status();
         Json native_timing = Json::object();
         for (const char* name :
              {"capture_duration_ms", "full_scan_duration_ms"}) {
@@ -481,6 +525,12 @@ private:
             core_status["visual_broad_update"].get<bool>();
         Json status = {
             {"mode", "adaptive"},
+            {"placement_mode",
+             manual.mode == ManualTargetMode::Manual
+                 ? "manual"
+                 : "automatic"},
+            {"manual_selected_id",
+             manual.selected ? Json(manual.selected_id) : Json(nullptr)},
             {"paused", paused},
             {"observe_only", observe_only_},
             {"state",
@@ -509,7 +559,11 @@ private:
             {"motion_active", motion_active},
             {"foreground", std::move(foreground)},
             {"last_error",
-             last_error_.has_value() ? Json(*last_error_) : Json(nullptr)},
+             last_error_.has_value()
+                 ? Json(*last_error_)
+                 : manual.error.has_value()
+                       ? Json(*manual.error)
+                       : Json(nullptr)},
             {"timing", timing_.snapshot(motion_active, paused)}};
         return status;
     }
@@ -662,6 +716,8 @@ public:
           status_file_(options_.data_dir),
           snapshot_({
               {"mode", "adaptive"},
+              {"placement_mode", "automatic"},
+              {"manual_selected_id", nullptr},
               {"paused", options_.start_paused},
               {"state", "starting"},
               {"learning_count", 0},
@@ -671,7 +727,16 @@ public:
               {"data", nullptr},
               {"error", nullptr},
               {"requested_profile", nullptr},
-              {"revision", 0}}) {}
+              {"revision", 0}}),
+          manual_snapshot_({
+              {"supported", false},
+              {"picker_open", false},
+              {"mode", "automatic"},
+              {"selected_id", nullptr},
+              {"windows", Json::array()},
+              {"error", nullptr},
+              {"revision", 0},
+              {"selection_revision", 0}}) {}
 
     ~Impl() {
         shutdown();
@@ -712,9 +777,12 @@ public:
     }
 
     void request_pause() {
+        if (manual_session_.load()) {
+            return;
+        }
         {
             std::lock_guard lock(control_mutex_);
-            controls_.push(Control::Pause);
+            controls_.push(ControlCommand{Control::Pause, {}});
         }
         control_condition_.notify_all();
     }
@@ -722,7 +790,7 @@ public:
     void request_quit() {
         {
             std::lock_guard lock(control_mutex_);
-            controls_.push(Control::Quit);
+            controls_.push(ControlCommand{Control::Quit, {}});
             quit_.store(true);
         }
         control_condition_.notify_all();
@@ -737,6 +805,28 @@ public:
         insights_requested_profile_ = std::move(profile_key);
     }
 
+    void request_manual_picker() {
+        manual_session_.store(true);
+        queue_manual(Control::OpenManualPicker);
+    }
+
+    void request_manual_refresh() {
+        queue_manual(Control::RefreshManualPicker);
+    }
+
+    void request_manual_selection(std::string selection_token) {
+        queue_manual(
+            Control::SelectManualTarget, std::move(selection_token));
+    }
+
+    void request_manual_reset() {
+        queue_manual(Control::ResetManualTarget);
+    }
+
+    void request_manual_picker_closed() {
+        queue_manual(Control::CloseManualPicker);
+    }
+
     Json snapshot() const {
         std::lock_guard lock(snapshot_mutex_);
         return snapshot_;
@@ -745,6 +835,11 @@ public:
     Json insights_snapshot() const {
         std::lock_guard lock(insights_mutex_);
         return insights_snapshot_;
+    }
+
+    Json manual_snapshot() const {
+        std::lock_guard lock(manual_mutex_);
+        return manual_snapshot_;
     }
 
     bool finished() const {
@@ -760,7 +855,29 @@ public:
     }
 
 private:
-    enum class Control { Pause, Quit };
+    enum class Control {
+        Pause,
+        Quit,
+        OpenManualPicker,
+        RefreshManualPicker,
+        SelectManualTarget,
+        ResetManualTarget,
+        CloseManualPicker,
+    };
+
+    struct ControlCommand {
+        Control kind{};
+        std::string selection_token;
+    };
+
+    void queue_manual(Control control, std::string token = {}) {
+        {
+            std::lock_guard lock(control_mutex_);
+            controls_.push(ControlCommand{
+                control, std::move(token)});
+        }
+        control_condition_.notify_all();
+    }
 
     void start() {
         if (!options_.start_paused && uses_platform_backend() &&
@@ -840,6 +957,8 @@ private:
 
             Json initial = {
                 {"mode", "adaptive"},
+                {"placement_mode", "automatic"},
+                {"manual_selected_id", nullptr},
                 {"paused", controller_->paused()},
                 {"observe_only", options_.observe_only},
                 {"state", "starting"},
@@ -869,6 +988,8 @@ private:
                     break;
                 }
                 Json status = loop_->tick(now);
+                sync_manual_status(
+                    loop_->backend_manual_status());
                 publish(status);
                 const double finished = now_seconds();
                 const double period = target_period(
@@ -972,26 +1093,208 @@ private:
 
     bool apply_controls() {
         for (;;) {
-            Control control;
+            ControlCommand command;
             {
                 std::lock_guard lock(control_mutex_);
                 if (controls_.empty()) {
                     return false;
                 }
-                control = controls_.front();
+                command = std::move(controls_.front());
                 controls_.pop();
             }
-            if (control == Control::Quit) {
+            if (command.kind == Control::Quit) {
                 quit_.store(true);
                 if (signals_ != nullptr) {
                     signals_->sign_stop();
                 }
                 return true;
             }
-            if (control == Control::Pause && loop_ != nullptr) {
+            if (command.kind == Control::Pause &&
+                loop_ != nullptr &&
+                !manual_session_.load()) {
                 loop_->request_pause();
+            } else if (
+                command.kind == Control::OpenManualPicker) {
+                open_manual_picker();
+            } else if (
+                command.kind == Control::RefreshManualPicker) {
+                refresh_manual_picker();
+            } else if (
+                command.kind == Control::SelectManualTarget) {
+                select_manual_target(command.selection_token);
+            } else if (
+                command.kind == Control::ResetManualTarget) {
+                reset_manual_target();
+            } else if (
+                command.kind == Control::CloseManualPicker) {
+                update_manual_picker_closed();
             }
         }
+    }
+
+    static Json manual_windows_json(
+        const ManualWindowSnapshot& snapshot) {
+        Json windows = Json::array();
+        for (const ManualWindowInfo& window : snapshot.windows) {
+            windows.push_back({
+                {"selection_token", window.selection_token},
+                {"title", window.title},
+                {"executable", window.executable},
+                {"width", window.rect.width()},
+                {"height", window.rect.height()}});
+        }
+        return windows;
+    }
+
+    void sync_manual_status(const ManualTargetStatus& status) {
+        const std::string mode =
+            status.mode == ManualTargetMode::Manual
+                ? "manual"
+                : "automatic";
+        const Json selected =
+            status.selected ? Json(status.selected_id) : Json(nullptr);
+        const Json error =
+            status.error.has_value()
+                ? Json(safe_error(*status.error))
+                : Json(nullptr);
+        std::lock_guard lock(manual_mutex_);
+        if (manual_snapshot_.value("mode", std::string{}) == mode &&
+            manual_snapshot_["selected_id"] == selected &&
+            manual_snapshot_["error"] == error &&
+            manual_snapshot_.value("supported", false) ==
+                status.supported) {
+            return;
+        }
+        manual_snapshot_["supported"] = status.supported;
+        manual_snapshot_["mode"] = mode;
+        manual_snapshot_["selected_id"] = selected;
+        manual_snapshot_["error"] = error;
+        ++manual_revision_;
+        manual_snapshot_["revision"] = manual_revision_;
+    }
+
+    void publish_manual_state(
+        const std::optional<ManualWindowSnapshot>& windows,
+        const ManualTargetStatus& status,
+        std::optional<std::string> error,
+        bool picker_open,
+        bool selection_attempt = false) {
+        std::optional<Json> serialized_windows;
+        if (windows.has_value()) {
+            serialized_windows =
+                manual_windows_json(*windows);
+        }
+        std::lock_guard lock(manual_mutex_);
+        Json next = manual_snapshot_;
+        next["picker_open"] = picker_open;
+        next["supported"] = status.supported;
+        next["mode"] =
+            status.mode == ManualTargetMode::Manual
+                ? "manual"
+                : "automatic";
+        next["selected_id"] =
+            status.selected ? Json(status.selected_id) : Json(nullptr);
+        if (windows.has_value()) {
+            next["supported"] = windows->supported;
+            next["windows"] = *serialized_windows;
+            if (windows->error.has_value()) {
+                error = windows->error;
+            }
+        }
+        if (!error.has_value() && status.error.has_value()) {
+            error = status.error;
+        }
+        next["error"] =
+            error.has_value()
+                ? Json(safe_error(*error))
+                : Json(nullptr);
+        ++manual_revision_;
+        next["revision"] = manual_revision_;
+        if (selection_attempt) {
+            ++manual_selection_revision_;
+            next["selection_revision"] =
+                manual_selection_revision_;
+        }
+        manual_snapshot_ = std::move(next);
+    }
+
+    void open_manual_picker() {
+        if (loop_ == nullptr || backend_ == nullptr) {
+            return;
+        }
+        loop_->prepare_target_change();
+        const ManualWindowSnapshot windows = backend_->manual_windows();
+        const ManualTargetStatus status =
+            backend_->manual_target_status();
+        publish_manual_state(
+            windows,
+            status,
+            status.error,
+            true);
+    }
+
+    void refresh_manual_picker() {
+        if (backend_ == nullptr) {
+            return;
+        }
+        const ManualWindowSnapshot windows = backend_->manual_windows();
+        const ManualTargetStatus status =
+            backend_->manual_target_status();
+        publish_manual_state(
+            windows,
+            status,
+            status.error,
+            true);
+    }
+
+    void select_manual_target(const std::string& token) {
+        if (loop_ == nullptr || backend_ == nullptr) {
+            return;
+        }
+        loop_->prepare_target_change();
+        const bool selected = backend_->select_manual_window(token);
+        const ManualTargetStatus status =
+            backend_->manual_target_status();
+        std::optional<std::string> error = status.error;
+        if (!selected && !error.has_value()) {
+            error = "The selected window could not be used.";
+        }
+        publish_manual_state(
+            std::nullopt,
+            status,
+            error,
+            true,
+            true);
+    }
+
+    void reset_manual_target() {
+        if (loop_ == nullptr || backend_ == nullptr) {
+            return;
+        }
+        loop_->prepare_target_change();
+        const bool reset = backend_->reset_manual_target();
+        const ManualTargetStatus status =
+            backend_->manual_target_status();
+        std::optional<std::string> error = status.error;
+        if (!reset && !error.has_value()) {
+            error = "Automatic selection could not be restored.";
+        }
+        publish_manual_state(
+            std::nullopt,
+            status,
+            error,
+            manual_session_.load());
+    }
+
+    void update_manual_picker_closed() {
+        if (loop_ != nullptr) {
+            loop_->prepare_target_change();
+        }
+        std::lock_guard lock(manual_mutex_);
+        manual_snapshot_["picker_open"] = false;
+        ++manual_revision_;
+        manual_snapshot_["revision"] = manual_revision_;
+        manual_session_.store(false);
     }
 
     void process_insights_request() {
@@ -1104,7 +1407,8 @@ private:
     std::optional<std::string> startup_error_;
     std::mutex control_mutex_;
     std::condition_variable control_condition_;
-    std::queue<Control> controls_;
+    std::queue<ControlCommand> controls_;
+    std::atomic<bool> manual_session_{false};
     DeadlineWaiter deadline_waiter_;
 
     mutable std::mutex snapshot_mutex_;
@@ -1115,6 +1419,11 @@ private:
     std::optional<std::string> insights_requested_profile_;
     unsigned long long insights_revision_{};
     Json insights_snapshot_;
+
+    mutable std::mutex manual_mutex_;
+    unsigned long long manual_revision_{};
+    unsigned long long manual_selection_revision_{};
+    Json manual_snapshot_;
 };
 
 AdaptiveApplication::AdaptiveApplication(RuntimeOptions options)
@@ -1141,12 +1450,37 @@ void AdaptiveApplication::request_insights(
     impl_->request_insights(std::move(profile_key));
 }
 
+void AdaptiveApplication::request_manual_picker() {
+    impl_->request_manual_picker();
+}
+
+void AdaptiveApplication::request_manual_refresh() {
+    impl_->request_manual_refresh();
+}
+
+void AdaptiveApplication::request_manual_selection(
+    std::string selection_token) {
+    impl_->request_manual_selection(std::move(selection_token));
+}
+
+void AdaptiveApplication::request_manual_reset() {
+    impl_->request_manual_reset();
+}
+
+void AdaptiveApplication::request_manual_picker_closed() {
+    impl_->request_manual_picker_closed();
+}
+
 Json AdaptiveApplication::snapshot() const {
     return impl_->snapshot();
 }
 
 Json AdaptiveApplication::insights_snapshot() const {
     return impl_->insights_snapshot();
+}
+
+Json AdaptiveApplication::manual_snapshot() const {
+    return impl_->manual_snapshot();
 }
 
 bool AdaptiveApplication::finished() const {

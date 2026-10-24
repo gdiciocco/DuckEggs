@@ -5,8 +5,10 @@ information for DuckEggs. See the [root README](../README.md) for the public
 overview.
 
 DuckEggs is a native C++20 port of the Schiva adaptive Picture-in-Picture
-experience. It learns where Chrome's native PiP window fits your work and moves
-it only when the shared adaptive model finds a safe destination.
+experience. Automatic mode learns where Chrome's native PiP window fits your
+work and moves it only when the shared adaptive model finds a safe destination.
+An additional session-only manual mode can target a visible top-level window
+from another browser or application after explicit selection.
 
 The product interface is entirely in English. Internal `schiva` namespaces and
 header paths remain frozen for compatibility with the ported core.
@@ -21,9 +23,17 @@ telemetry.
 
 The compact DuckEggs window uses a dark neutral interface with teal accents,
 Segoe UI typography, DPI-scaled metrics and native keyboard controls. It starts
-paused and shows a clear Paused/Watching/Moving/No PiP status, Chrome PiP
+paused and shows a clear Paused/Watching/Moving/No PiP status, PiP
 availability, learning updates, visual-signal state, and the primary
 Resume/Pause action. Learning maps and Exit are secondary actions.
+
+The compact footer also includes **Choose PiP...**. It opens a paced native
+chooser that lists eligible visible top-level windows by title, executable and
+dimensions. No row is selected by default and **Use window** stays disabled
+until the user selects one. **Refresh** performs an explicit owner-thread
+enumeration, **Automatic** resets to default Chrome discovery, and **Cancel**
+closes the chooser. Opening, selecting, resetting, or closing the chooser
+leaves DuckEggs paused; Resume remains a separate action.
 
 The product quote is presented compactly. UI updates avoid unnecessary
 refreshes to reduce flicker while runtime status changes.
@@ -60,14 +70,29 @@ or activate the viewer.
 
 ## Safety model
 
-- Only a visible, top-level `chrome.exe` window with class
-  `Chrome_WidgetWin_1` and the complete localized PiP title is a candidate.
+- Automatic mode accepts as a candidate only a visible, top-level `chrome.exe`
+  window with class `Chrome_WidgetWin_1` and the complete localized PiP title.
   Partial Chrome titles fail closed.
 - Exactly one candidate is required. Multiple PiP windows are not chosen
   arbitrarily.
 - Window identity includes the handle, process ID, process creation time,
   class, executable basename and exact title. Full identity validation is
   repeated throughout a movement.
+- Manual mode accepts a visible, restored, non-cloaked top-level window from a
+  non-DuckEggs process, including other browsers and media applications. It
+  excludes shell/desktop surfaces, minimized or maximized windows, invalid
+  rectangles, and windows whose process identity cannot be queried.
+- A manual binding pins the handle, process ID, process creation time, class,
+  executable basename, and a private per-instance `SetPropW` lifetime marker.
+  The marker is checked before observation, motion validation and the native
+  move. Title changes are allowed because video titles update; handle reuse or
+  any other identity mismatch fails closed.
+- Manual selection uses an ephemeral opaque candidate registry. A stale chooser
+  row is rejected after revalidation. Losing a manual target leaves the mode
+  explicitly manual and paused, with no automatic Chrome fallback.
+- Candidate enumeration and every native binding mutation run only on the
+  runtime worker thread. The UI reads immutable bridge snapshots and sends
+  queued commands; it never enumerates windows or reads the backend directly.
 - A movement target is revalidated for geometry, cursor and held buttons
   immediately before it is applied. DuckEggs never activates, resizes,
   reorders or closes a user window.
@@ -94,8 +119,10 @@ Matching uses the same compatibility normalizer for observed and official
 titles, then requires exact normalized equality against this finite table.
 There is no prefix, class-only, topmost-only or size-only fallback. Official
 Unicode is preserved, including non-breaking spaces and trailing zero-width
-spaces. Recognition remains limited to Chrome; Edge and Brave titles are
-excluded by the strict process and class checks.
+spaces. Automatic recognition remains limited to Chrome; Edge, Brave, Firefox
+and other applications require explicit manual selection. This manual path is
+implemented but other applications are not claimed as live-validated
+compatibility targets.
 
 Capture is a bounded one-worker latest-request/latest-result pipeline. Sampling
 is capped at 2 Hz and uses one in-memory 64 by 36 grayscale frame at a time.
@@ -226,6 +253,10 @@ runtime dependency.
 `test_platform` uses synthetic data for strict target identity, geometry,
 scheduling, status output, capture mailbox behavior, heatmap helpers and a
 SQLite backup round trip. It does not capture a real desktop or move a window.
+`test_manual_selection` uses a fake owner-thread backend to cover chooser pause
+barriers, queued toggle resistance, explicit selection/reset, stale choices,
+manual-target loss without automatic fallback, and portable identity-property
+predicates. It does not control a real desktop window.
 The core tests cover model, storage, controller and visual behavior.
 `core_parity` compares the complete C++ fixture output against the pinned
 Python reference when Python is available at configure time.
@@ -236,12 +267,14 @@ tests. Linux and macOS do not claim a desktop adapter.
 
 Source inspection and portable tests are not hardware validation. MSVC
 compilation, dependency inspection, package hashing, and actual desktop/PiP
-smoke tests remain coordinator verification steps. No live browser-animation
-or real window-movement validation is claimed here.
+smoke tests remain coordinator verification steps. No live browser-animation,
+other-application compatibility, or real window-movement validation is claimed
+here.
 
 ## Known limitations
 
 - Windows is the only native adapter.
+- Manual selection is session-only and is not restored after restart.
 - Caret/UI Automation acquisition is not implemented.
 - GDI capture cannot inspect occluded content, protected video or the area
   beneath the PiP. A denied or black capture is treated as unavailable

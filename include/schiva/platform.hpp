@@ -49,6 +49,32 @@ struct MotionSize {
     int height{};
 };
 
+struct ManualWindowInfo {
+    std::string selection_token;
+    std::string title;
+    std::string executable;
+    Rect rect;
+};
+
+struct ManualWindowSnapshot {
+    bool supported{};
+    std::optional<std::string> error;
+    std::vector<ManualWindowInfo> windows;
+};
+
+enum class ManualTargetMode {
+    Automatic,
+    Manual,
+};
+
+struct ManualTargetStatus {
+    bool supported{};
+    ManualTargetMode mode{ManualTargetMode::Automatic};
+    bool selected{};
+    std::string selected_id;
+    std::optional<std::string> error;
+};
+
 // Compares a motion lease's expected geometry with a freshly observed
 // rectangle before a native move is applied.
 inline bool motion_rect_matches(
@@ -88,6 +114,10 @@ public:
     virtual bool begin_motion(const std::string& pip_id) = 0;
     virtual void end_motion() = 0;
     virtual bool move(const std::string& pip_id, int left, int top) = 0;
+    virtual ManualWindowSnapshot manual_windows();
+    virtual ManualTargetStatus manual_target_status() const;
+    virtual bool select_manual_window(std::string_view selection_token);
+    virtual bool reset_manual_target();
     virtual Json capabilities() const = 0;
     virtual Json probe();
     virtual bool python_instance_active() const = 0;

@@ -1,5 +1,7 @@
 #include "schiva/platform.hpp"
 
+#include "manual_window_identity.hpp"
+
 #include <windows.h>
 #include <shellscalingapi.h>
 
@@ -31,6 +33,9 @@ constexpr wchar_t kCppMutexName[] =
     L"Local\\DuckEggs.Instance.v1";
 constexpr wchar_t kCppStopEventName[] =
     L"Local\\DuckEggs.Stop.v1";
+constexpr wchar_t kManualTargetPropertyPrefix[] =
+    L"DuckEggs.ManualTarget.";
+constexpr DWORD kDwmWindowCloaked = 14;
 constexpr int kCaptureWidth = 64;
 constexpr int kCaptureHeight = 36;
 constexpr double kIdentityScanSeconds = 0.75;
@@ -191,10 +196,17 @@ struct WindowRecord {
     HWND handle{};
     DWORD process_id{};
     std::wstring class_name;
+    std::wstring title;
     std::wstring process_basename;
     Rect rect;
     bool is_target{};
     std::uint64_t creation_time{};
+};
+
+struct ManualBinding {
+    WindowRecord record;
+    std::string selection_id;
+    HANDLE marker{};
 };
 
 struct Candidate {
@@ -203,6 +215,46 @@ struct Candidate {
     std::wstring app_id;
     std::wstring role;
 };
+
+bool shell_or_desktop_class(std::wstring_view class_name) {
+    static constexpr std::array<std::wstring_view, 7> classes{
+        L"Progman",
+        L"WorkerW",
+        L"Shell_TrayWnd",
+        L"Shell_SecondaryTrayWnd",
+        L"NotifyIconOverflowWindow",
+        L"XamlExplorerHostIslandWindow",
+        L"TopLevelWindowForOverflowXamlIsland"};
+    return std::find(classes.begin(), classes.end(), class_name) !=
+           classes.end();
+}
+
+bool window_is_cloaked(HWND window) {
+    using DwmGetWindowAttributeFunction =
+        HRESULT(WINAPI*)(HWND, DWORD, PVOID, DWORD);
+    static const auto query = []() -> DwmGetWindowAttributeFunction {
+        HMODULE library = GetModuleHandleW(L"dwmapi.dll");
+        if (library == nullptr) {
+            library = LoadLibraryW(L"dwmapi.dll");
+        }
+        return library == nullptr
+                   ? nullptr
+                   : reinterpret_cast<DwmGetWindowAttributeFunction>(
+                         GetProcAddress(library, "DwmGetWindowAttribute"));
+    }();
+    if (query == nullptr) {
+        // Cloak state is part of manual window eligibility. Fail closed when
+        // the Windows 10+ query is unavailable.
+        return true;
+    }
+    DWORD cloaked = 0;
+    return FAILED(query(
+               window,
+               kDwmWindowCloaked,
+               &cloaked,
+               static_cast<DWORD>(sizeof(cloaked)))) ||
+           cloaked != 0;
+}
 
 bool same_motion_identity(
     const WindowRecord& lease,
@@ -513,6 +565,15 @@ public:
               [](const Rect& bounds, const std::vector<Rect>& masks) {
                   return capture_desktop(bounds, masks);
               }) {
+        manual_property_name_ =
+            kManualTargetPropertyPrefix +
+            std::to_wstring(GetCurrentProcessId()) + L"." +
+            std::to_wstring(
+                reinterpret_cast<std::uintptr_t>(this)) + L"." +
+            std::to_wstring(static_cast<unsigned long long>(
+                std::chrono::steady_clock::now()
+                    .time_since_epoch()
+                    .count()));
         capture_worker_.resume();
     }
 
@@ -541,6 +602,165 @@ public:
         last_real_foreground_ = nullptr;
     }
 
+    ManualWindowSnapshot manual_windows() override {
+        ManualWindowSnapshot snapshot;
+        snapshot.supported = true;
+        if (closed_) {
+            snapshot.error = "the Windows backend is closed";
+            return snapshot;
+        }
+        try {
+            manual_candidates_.clear();
+            manual_candidate_generation_ =
+                manual_candidate_generation_ + 1ULL;
+            const std::vector<WindowRecord> records =
+                snapshot_manual_records();
+            std::size_t index = 0;
+            for (const WindowRecord& record : records) {
+                const std::string token =
+                    "candidate-" +
+                    std::to_string(manual_candidate_generation_) + "-" +
+                    std::to_string(index++);
+                manual_candidates_.emplace(token, record);
+                snapshot.windows.push_back({
+                    token,
+                    utf8(record.title),
+                    utf8(record.process_basename),
+                    record.rect});
+            }
+        } catch (const std::exception& exception) {
+            manual_candidates_.clear();
+            snapshot.error = exception.what();
+        }
+        return snapshot;
+    }
+
+    ManualTargetStatus manual_target_status() const override {
+        ManualTargetStatus status;
+        status.supported = true;
+        status.mode = manual_mode_ ? ManualTargetMode::Manual
+                                   : ManualTargetMode::Automatic;
+        status.selected =
+            manual_mode_ && manual_binding_.has_value();
+        if (manual_mode_ && manual_binding_.has_value()) {
+            status.selected_id = manual_binding_->selection_id;
+        }
+        status.error = manual_error_;
+        return status;
+    }
+
+    bool select_manual_window(std::string_view selection_token) override {
+        if (closed_) {
+            manual_error_ = "the Windows backend is closed";
+            return false;
+        }
+        const auto candidate =
+            manual_candidates_.find(std::string(selection_token));
+        if (candidate == manual_candidates_.end()) {
+            manual_error_ =
+                "This window list is stale. Refresh and choose again.";
+            return false;
+        }
+
+        std::optional<WindowRecord> current;
+        try {
+            for (const WindowRecord& record :
+                 snapshot_manual_records()) {
+                if (record.handle == candidate->second.handle) {
+                    current = record;
+                    break;
+                }
+            }
+        } catch (const std::exception& exception) {
+            manual_error_ =
+                "The selected window could not be revalidated: " +
+                std::string(exception.what());
+            return false;
+        }
+        if (!current.has_value()) {
+            manual_error_ =
+                "The selected window is no longer available. Refresh and "
+                "choose again.";
+            return false;
+        }
+        const WindowRecord& expected = candidate->second;
+        if (expected.process_id != current->process_id ||
+            expected.creation_time != current->creation_time ||
+            expected.class_name != current->class_name ||
+            _wcsicmp(
+                expected.process_basename.c_str(),
+                current->process_basename.c_str()) != 0) {
+            manual_error_ =
+                "The selected window changed identity. Refresh and choose "
+                "again.";
+            return false;
+        }
+        if (manual_binding_.has_value() &&
+            manual_binding_->record.handle == current->handle &&
+            manual_marker_matches(current->handle) &&
+            same_motion_identity(manual_binding_->record, *current)) {
+            manual_binding_->record = *current;
+            manual_binding_->selection_id =
+                std::string(selection_token);
+            manual_mode_ = true;
+            manual_error_.reset();
+            last_error_.reset();
+            return true;
+        }
+
+        HANDLE marker = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (marker == nullptr) {
+            manual_error_ =
+                "The selected window could not be pinned safely.";
+            return false;
+        }
+        if (GetPropW(
+                current->handle,
+                manual_property_name_.c_str()) != nullptr ||
+            !SetPropW(
+                current->handle,
+                manual_property_name_.c_str(),
+                marker)) {
+            CloseHandle(marker);
+            manual_error_ =
+                "The selected window could not be pinned safely.";
+            return false;
+        }
+        if (GetPropW(
+                current->handle,
+                manual_property_name_.c_str()) != marker) {
+            // The property is no longer ours, so removal would be unsafe.
+            CloseHandle(marker);
+            manual_error_ =
+                "The selected window could not be pinned safely.";
+            return false;
+        }
+
+        remove_manual_marker();
+        manual_binding_ = ManualBinding{
+            *current,
+            std::string(selection_token),
+            marker};
+        manual_mode_ = true;
+        manual_error_.reset();
+        last_error_.reset();
+        invalidate_capture();
+        return true;
+    }
+
+    bool reset_manual_target() override {
+        if (closed_) {
+            return false;
+        }
+        remove_manual_marker();
+        manual_mode_ = false;
+        manual_error_.reset();
+        manual_candidates_.clear();
+        last_error_.reset();
+        invalidate_capture();
+        return true;
+    }
+
     bool python_instance_active() const override {
         return python_mutex_present();
     }
@@ -550,22 +770,32 @@ public:
             throw PlatformError("the Windows backend is closed");
         }
         const auto records = records_for_observe(now);
-        auto candidates = candidates_from(records);
-        if (candidates.size() > 1U) {
-            if (motion_cancelled_this_observe_ || motion_ambiguous_) {
-                candidates.clear();
-            } else {
-                throw PlatformError(
-                    "found multiple Chrome PiP windows; close extras so a "
-                    "unique target can be selected");
-            }
-        }
         std::optional<Candidate> candidate;
-        if (candidates.size() == 1U) {
-            candidate = candidates.front();
-        }
-        if (motion_ambiguous_ && candidate.has_value()) {
-            motion_ambiguous_ = false;
+        if (manual_mode_) {
+            if (const auto current = read_manual_identity()) {
+                candidate = Candidate{
+                    current->handle,
+                    current->rect,
+                    L"manual-window",
+                    L"window"};
+            }
+        } else {
+            auto candidates = candidates_from(records);
+            if (candidates.size() > 1U) {
+                if (motion_cancelled_this_observe_ || motion_ambiguous_) {
+                    candidates.clear();
+                } else {
+                    throw PlatformError(
+                        "found multiple Chrome PiP windows; close extras so "
+                        "a unique target can be selected");
+                }
+            }
+            if (candidates.size() == 1U) {
+                candidate = candidates.front();
+            }
+            if (motion_ambiguous_ && candidate.has_value()) {
+                motion_ambiguous_ = false;
+            }
         }
 
         const Point cursor = read_cursor();
@@ -578,7 +808,11 @@ public:
             foreground_record != nullptr &&
             foreground_record->process_id == own_pid;
         const bool foreground_is_pip =
-            foreground_record != nullptr && foreground_record->is_target;
+            foreground_record != nullptr &&
+            (foreground_record->is_target ||
+             (manual_mode_ && manual_binding_.has_value() &&
+              foreground_record->handle ==
+                  manual_binding_->record.handle));
         if (foreground_record != nullptr && !foreground_is_helper &&
             !foreground_is_pip) {
             last_real_foreground_ = foreground_record->handle;
@@ -691,6 +925,23 @@ public:
         }
         capture_worker_.set_suppressed(true);
         invalidate_capture();
+        if (manual_mode_) {
+            const auto current = read_manual_identity();
+            if (!current.has_value() ||
+                reinterpret_cast<std::uintptr_t>(current->handle) !=
+                    requested_value) {
+                if (current.has_value()) {
+                    fail_motion(
+                        "the manual PiP window changed before movement");
+                }
+                return false;
+            }
+            motion_lease_ = *current;
+            motion_cancelled_this_observe_ = false;
+            motion_ambiguous_ = false;
+            last_error_.reset();
+            return true;
+        }
         std::vector<WindowRecord> records;
         if (!last_scan_records_.empty() &&
             std::abs(last_scan_at_ - last_observe_now_) < 1.0e-9) {
@@ -802,6 +1053,11 @@ public:
             fail_motion("the requested move leaves the work area");
             return false;
         }
+        if (manual_mode_ && !manual_marker_matches(validated->handle)) {
+            fail_motion(
+                "the manual window lifetime marker changed before the move");
+            return false;
+        }
         if (!SetWindowPos(
                 validated->handle,
                 nullptr,
@@ -829,6 +1085,11 @@ public:
 
     Json capabilities() const override {
         Json capture_metrics = capture_worker_.metrics();
+        const ManualTargetStatus manual = manual_target_status();
+        const int candidates =
+            manual.mode == ManualTargetMode::Manual
+                ? manual.selected ? 1 : 0
+                : count_targets(last_records_);
         return {
             {"platform", "windows"},
             {"supported", true},
@@ -836,7 +1097,8 @@ public:
             {"dpi_awareness", dpi_awareness_},
             {"window_identity",
              "chrome.exe / Chrome_WidgetWin_1 / exact localized PiP title"},
-            {"candidate_count", count_targets(last_records_)},
+            {"manual_selection_supported", true},
+            {"candidate_count", candidates},
             {"input_activity",
              "GetLastInputInfo + cursor/button transitions"},
             {"caret", "unavailable (no UI Automation assumed)"},
@@ -897,6 +1159,10 @@ public:
         capture_worker_.close();
         invalidate_capture();
         end_motion();
+        remove_manual_marker();
+        manual_mode_ = false;
+        manual_candidates_.clear();
+        manual_error_.reset();
         last_records_.clear();
         last_scan_records_.clear();
         process_cache_.clear();
@@ -945,6 +1211,7 @@ private:
                 window,
                 process_id,
                 class_name,
+                title,
                 basename,
                 *rect,
                 target,
@@ -954,6 +1221,97 @@ private:
             context->failure = std::current_exception();
             return FALSE;
         }
+    }
+
+    struct ManualEnumerationContext {
+        WindowsBackend* backend{};
+        std::vector<WindowRecord>* records{};
+        std::exception_ptr failure;
+        DWORD own_pid{};
+    };
+
+    static BOOL CALLBACK enum_manual_window(
+        HWND window,
+        LPARAM parameter) {
+        auto* context =
+            reinterpret_cast<ManualEnumerationContext*>(parameter);
+        try {
+            if (!IsWindowVisible(window) ||
+                GetAncestor(window, GA_ROOT) != window ||
+                IsIconic(window) || IsZoomed(window) ||
+                window_is_cloaked(window)) {
+                return TRUE;
+            }
+            const std::wstring class_name = window_class(window);
+            if (class_name.empty() ||
+                shell_or_desktop_class(class_name)) {
+                return TRUE;
+            }
+            const std::wstring title = window_title(window);
+            if (title.empty()) {
+                return TRUE;
+            }
+            const auto rect = window_rect(window);
+            if (!rect.has_value()) {
+                return TRUE;
+            }
+            DWORD process_id = 0;
+            GetWindowThreadProcessId(window, &process_id);
+            if (process_id == 0 || process_id == context->own_pid) {
+                return TRUE;
+            }
+            const auto identity =
+                context->backend->lookup_process(process_id);
+            if (!identity.has_value() ||
+                !valid_creation_time(identity->creation_time) ||
+                identity->basename.empty()) {
+                return TRUE;
+            }
+            context->records->push_back(WindowRecord{
+                window,
+                process_id,
+                class_name,
+                title,
+                identity->basename,
+                *rect,
+                is_target_window(
+                    class_name, title, identity->basename, true, true),
+                identity->creation_time});
+            return TRUE;
+        } catch (...) {
+            context->failure = std::current_exception();
+            return FALSE;
+        }
+    }
+
+    std::vector<WindowRecord> snapshot_manual_records() {
+        std::vector<WindowRecord> records;
+        ManualEnumerationContext context{
+            this, &records, nullptr, GetCurrentProcessId()};
+        if (!EnumWindows(
+                &WindowsBackend::enum_manual_window,
+                reinterpret_cast<LPARAM>(&context))) {
+            if (context.failure) {
+                std::rethrow_exception(context.failure);
+            }
+            throw PlatformError(
+                "could not enumerate windows for manual selection (Win32 " +
+                std::to_string(GetLastError()) + ")");
+        }
+        std::sort(
+            records.begin(),
+            records.end(),
+            [](const WindowRecord& first, const WindowRecord& second) {
+                return _wcsicmp(
+                           first.process_basename.c_str(),
+                           second.process_basename.c_str()) < 0 ||
+                       (_wcsicmp(
+                            first.process_basename.c_str(),
+                            second.process_basename.c_str()) == 0 &&
+                        _wcsicmp(
+                            first.title.c_str(), second.title.c_str()) < 0);
+            });
+        return records;
     }
 
     std::optional<ProcessIdentity> lookup_process(DWORD process_id) {
@@ -1046,6 +1404,7 @@ private:
         }
         result.class_name = window_class(record.handle);
         const std::wstring title = window_title(record.handle);
+        result.title = title;
         if (process_id != record.process_id || title_matches(title) ||
             record.is_target) {
             // lookup_process mutates the cache, so it is invoked through the
@@ -1081,18 +1440,37 @@ private:
             std::vector<WindowRecord> records = snapshot_records();
             last_scan_at_ = now;
             if (moving && motion_lease_.has_value()) {
-                const auto candidates = candidates_from(records);
-                const WindowRecord* current = candidates.size() == 1U
-                    ? find_record(records, candidates.front().handle)
-                    : nullptr;
                 const HWND leased_handle = motion_lease_->handle;
-                if (current == nullptr ||
-                    !same_motion_identity(*motion_lease_, *current)) {
-                    fail_motion(
-                        "movement stopped because the PiP target was no "
-                        "longer uniquely valid",
-                        candidates.size() > 1U);
-                    if (current == nullptr) {
+                bool current_valid = false;
+                bool remove_lease_record = false;
+                const WindowRecord* current = nullptr;
+                if (manual_mode_) {
+                    const auto validated = read_motion_identity();
+                    current_valid = validated.has_value();
+                    remove_lease_record = !current_valid;
+                    if (validated.has_value()) {
+                        motion_lease_ = *validated;
+                    }
+                } else {
+                    const auto candidates = candidates_from(records);
+                    current = candidates.size() == 1U
+                                  ? find_record(
+                                        records,
+                                        candidates.front().handle)
+                                  : nullptr;
+                    current_valid =
+                        current != nullptr &&
+                        same_motion_identity(*motion_lease_, *current);
+                    remove_lease_record = current == nullptr;
+                    if (!current_valid) {
+                        fail_motion(
+                            "movement stopped because the PiP target was no "
+                            "longer uniquely valid",
+                            candidates.size() > 1U);
+                    }
+                }
+                if (!current_valid) {
+                    if (remove_lease_record) {
                         records.erase(
                             std::remove_if(
                                 records.begin(),
@@ -1103,7 +1481,9 @@ private:
                             records.end());
                     }
                 } else {
-                    motion_lease_ = *current;
+                    if (!manual_mode_) {
+                        motion_lease_ = *current;
+                    }
                 }
             }
             last_scan_records_ = records;
@@ -1271,12 +1651,132 @@ private:
         motion_ambiguous_ = motion_ambiguous_ || ambiguous;
     }
 
+    bool manual_marker_matches(HWND handle) const {
+        return manual_binding_.has_value() &&
+               manual_binding_->marker != nullptr &&
+               IsWindow(handle) &&
+               GetPropW(handle, manual_property_name_.c_str()) ==
+                   manual_binding_->marker;
+    }
+
+    void remove_manual_marker() {
+        if (!manual_binding_.has_value()) {
+            return;
+        }
+        const HWND handle = manual_binding_->record.handle;
+        if (IsWindow(handle) && manual_marker_matches(handle)) {
+            RemovePropW(handle, manual_property_name_.c_str());
+        }
+        if (manual_binding_->marker != nullptr) {
+            CloseHandle(manual_binding_->marker);
+        }
+        manual_binding_.reset();
+    }
+
+    void fail_manual(std::string message) {
+        remove_manual_marker();
+        motion_lease_.reset();
+        manual_error_ = std::move(message);
+        last_error_ = manual_error_;
+    }
+
+    std::optional<WindowRecord> read_manual_identity() {
+        if (!manual_mode_ || !manual_binding_.has_value()) {
+            manual_error_ =
+                "The selected manual window is no longer available.";
+            return std::nullopt;
+        }
+        const ManualBinding binding = *manual_binding_;
+        const HWND handle = binding.record.handle;
+        if (!IsWindow(handle)) {
+            fail_manual("The selected manual window was closed.");
+            return std::nullopt;
+        }
+        if (!IsWindowVisible(handle) || IsIconic(handle) ||
+            IsZoomed(handle) ||
+            GetAncestor(handle, GA_ROOT) != handle ||
+            window_is_cloaked(handle)) {
+            fail_manual(
+                "The selected manual window is no longer visible and "
+                "restorable.");
+            return std::nullopt;
+        }
+        if (!manual_marker_matches(handle)) {
+            fail_manual(
+                "The selected manual window lifetime marker changed.");
+            return std::nullopt;
+        }
+        DWORD process_id = 0;
+        GetWindowThreadProcessId(handle, &process_id);
+        if (process_id == 0) {
+            fail_manual(
+                "The selected manual window identity is unavailable.");
+            return std::nullopt;
+        }
+        const std::wstring class_name = window_class(handle);
+        const std::wstring title = window_title(handle);
+        const auto process = lookup_process(process_id);
+        const Rect rect = window_rect(handle).value_or(Rect{});
+        if (!process.has_value() || process->basename.empty() ||
+            !valid_creation_time(process->creation_time) ||
+            rect.width() <= 0 || rect.height() <= 0) {
+            fail_manual(
+                "The selected manual window identity could not be "
+                "validated.");
+            return std::nullopt;
+        }
+        const detail::ManualWindowIdentity expected{
+            reinterpret_cast<std::uintptr_t>(binding.record.handle),
+            static_cast<std::uint32_t>(binding.record.process_id),
+            binding.record.creation_time,
+            binding.record.class_name,
+            binding.record.process_basename,
+            reinterpret_cast<std::uintptr_t>(binding.marker)};
+        const detail::ManualWindowIdentity current{
+            reinterpret_cast<std::uintptr_t>(handle),
+            static_cast<std::uint32_t>(process_id),
+            process->creation_time,
+            class_name,
+            process->basename,
+            reinterpret_cast<std::uintptr_t>(
+                GetPropW(handle, manual_property_name_.c_str()))};
+        if (!detail::manual_window_identity_matches(expected, current)) {
+            fail_manual(
+                "The selected manual window identity changed.");
+            return std::nullopt;
+        }
+        WindowRecord result = binding.record;
+        result.process_id = process_id;
+        result.class_name = class_name;
+        result.title = title;
+        result.process_basename = process->basename;
+        result.creation_time = process->creation_time;
+        result.rect = rect;
+        result.is_target = false;
+        return result;
+    }
+
     std::optional<WindowRecord> read_motion_identity() {
         if (!motion_lease_.has_value()) {
             last_error_ = "no PiP motion validation lease is active";
             return std::nullopt;
         }
         const WindowRecord lease = *motion_lease_;
+        if (manual_mode_) {
+            const auto current = read_manual_identity();
+            if (!current.has_value()) {
+                motion_lease_.reset();
+                motion_cancelled_this_observe_ = true;
+                return std::nullopt;
+            }
+            if (current->handle != lease.handle ||
+                !same_motion_identity(lease, *current)) {
+                fail_motion(
+                    "the manual PiP window changed during movement");
+                return std::nullopt;
+            }
+            return current;
+        }
         if (!IsWindow(lease.handle)) {
             fail_motion("the PiP window disappeared during movement");
             return std::nullopt;
@@ -1391,6 +1891,12 @@ private:
     std::vector<WindowRecord> last_scan_records_;
     std::vector<WindowRecord> last_records_;
     std::map<DWORD, ProcessIdentity> process_cache_;
+    std::wstring manual_property_name_;
+    std::map<std::string, WindowRecord> manual_candidates_;
+    unsigned long long manual_candidate_generation_{};
+    std::optional<ManualBinding> manual_binding_;
+    bool manual_mode_{};
+    std::optional<std::string> manual_error_;
     std::optional<WindowRecord> motion_lease_;
     bool motion_cancelled_this_observe_{};
     bool motion_ambiguous_{};

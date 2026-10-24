@@ -33,11 +33,13 @@ using namespace Gdiplus;
 
 constexpr wchar_t kPanelClass[] = L"DuckEggsControlPanel";
 constexpr wchar_t kHeatmapClass[] = L"DuckEggsLearningMaps";
+constexpr wchar_t kManualPickerClass[] = L"DuckEggsManualPicker";
 constexpr int kPauseButton = 1001;
 constexpr int kLearningButton = 1002;
 constexpr int kExitButton = 1003;
 constexpr int kDonateButton = 1004;
 constexpr int kTrayButton = 1005;
+constexpr int kChooseButton = 1006;
 constexpr int kProfileCombo = 1101;
 constexpr int kActivityLayer = 1111;
 constexpr int kManualLayer = 1112;
@@ -49,8 +51,14 @@ constexpr int kDonateOther = 1204;
 constexpr int kTrayOpen = 1301;
 constexpr int kTrayPauseToggle = 1302;
 constexpr int kTrayExit = 1303;
+constexpr int kManualWindowList = 1401;
+constexpr int kManualRefresh = 1402;
+constexpr int kManualAutomatic = 1403;
+constexpr int kManualUse = 1404;
+constexpr int kManualCancel = 1405;
 constexpr UINT kPanelTimer = 1;
 constexpr UINT kHeatmapTimer = 2;
+constexpr UINT kManualPickerTimer = 3;
 constexpr UINT kHoverMessage = WM_APP + 41;
 constexpr UINT kTrayIconMessage = WM_APP + 42;
 constexpr UINT kTrayIconId = 1;
@@ -606,6 +614,7 @@ void install_hover(HWND button) {
 struct MainView {
     bool paused{true};
     bool observe_only{};
+    bool manual_mode{};
     std::wstring badge{L"Starting"};
     ARGB badge_color{kAccent};
     std::wstring pip_value{L"Checking"};
@@ -620,6 +629,7 @@ struct MainView {
 };
 
 class HeatmapWindow;
+class ManualPickerWindow;
 
 class ControlPanel {
 public:
@@ -638,6 +648,7 @@ public:
     ~ControlPanel();
 
     void heatmap_destroyed(HWND window);
+    void manual_picker_destroyed(HWND window);
 
     static LRESULT CALLBACK window_proc(
         HWND window,
@@ -667,7 +678,7 @@ private:
         small_font_ = make_font(dpi_, 12, FW_NORMAL);
         badge_font_ = make_font(dpi_, 12, FW_SEMIBOLD);
         for (HWND button :
-             {pause_button_, learning_button_, donate_button_,
+             {pause_button_, learning_button_, choose_button_, donate_button_,
               tray_button_, exit_button_}) {
             if (button != nullptr) {
                 SendMessageW(
@@ -695,6 +706,36 @@ private:
                 DeleteObject(*font);
                 *font = nullptr;
             }
+        }
+    }
+
+    void apply_fonts() {
+        for (HWND control :
+             {help_, mode_, error_, refresh_, automatic_, use_, cancel_}) {
+            if (control != nullptr) {
+                SendMessageW(
+                    control,
+                    WM_SETFONT,
+                    reinterpret_cast<WPARAM>(
+                        control == help_ || control == mode_ ||
+                                control == error_
+                            ? small_font_
+                            : semibold_font_),
+                    TRUE);
+            }
+        }
+        if (list_ != nullptr) {
+            SendMessageW(
+                list_,
+                WM_SETFONT,
+                reinterpret_cast<WPARAM>(body_font_),
+                TRUE);
+            ListView_SetColumnWidth(list_, 0, px(330));
+            ListView_SetColumnWidth(list_, 1, px(170));
+            ListView_SetColumnWidth(list_, 2, px(130));
+        }
+        if (window_ != nullptr) {
+            InvalidateRect(window_, nullptr, FALSE);
         }
     }
 
@@ -730,6 +771,8 @@ private:
         pause_button_ = make_button(kPauseButton, L"Resume");
         learning_button_ =
             make_button(kLearningButton, L"Learning maps");
+        choose_button_ =
+            make_button(kChooseButton, L"Choose PiP...");
         donate_button_ = make_button(kDonateButton, L"Donate");
         tray_button_ = make_button(kTrayButton, L"To tray");
         exit_button_ = make_button(kExitButton, L"Exit");
@@ -744,10 +787,10 @@ private:
         RECT client{};
         GetClientRect(window_, &client);
         const int margin = px(16);
-        const int gap = px(10);
+        const int gap = px(8);
         const int height = px(34);
         const int top = client.bottom - px(14) - height;
-        const int pause_width = px(118);
+        const int pause_width = px(100);
         bool changed = move_child_if_needed(
             window_,
             pause_button_,
@@ -756,7 +799,7 @@ private:
             pause_width,
             height);
         int right = client.right - margin;
-        const int exit_width = px(58);
+        const int exit_width = px(50);
         changed |= move_child_if_needed(
             window_,
             exit_button_,
@@ -765,7 +808,7 @@ private:
             exit_width,
             height);
         right -= exit_width + gap;
-        const int donate_width = px(86);
+        const int donate_width = px(84);
         changed |= move_child_if_needed(
             window_,
             donate_button_,
@@ -774,13 +817,22 @@ private:
             donate_width,
             height);
         right -= donate_width + gap;
-        const int learning_width = px(128);
+        const int learning_width = px(108);
         changed |= move_child_if_needed(
             window_,
             learning_button_,
             right - learning_width,
             top,
             learning_width,
+            height);
+        right -= learning_width + gap;
+        const int choose_width = px(122);
+        changed |= move_child_if_needed(
+            window_,
+            choose_button_,
+            right - choose_width,
+            top,
+            choose_width,
             height);
         changed |= move_child_if_needed(
             window_,
@@ -799,6 +851,9 @@ private:
         MainView view;
         view.paused = bool_field(status, "paused", true);
         view.observe_only = bool_field(status, "observe_only");
+        view.manual_mode =
+            string_field(status, "placement_mode").value_or(
+                "automatic") == "manual";
         const std::string state =
             string_field(status, "state").value_or("starting");
         const int candidates = integer_field(status, "candidate_count");
@@ -830,7 +885,21 @@ private:
             view.badge_color = kAccent;
         }
 
-        if (candidates > 1) {
+        if (view.manual_mode && candidates == 0) {
+            view.pip_value = L"Selection lost";
+            view.pip_detail =
+                L"Manual mode. Choose another window or return to Automatic.";
+        } else if (view.manual_mode && moving) {
+            view.pip_value = L"Moving safely";
+            view.pip_detail =
+                L"Easing the selected window to a clear destination.";
+        } else if (view.manual_mode) {
+            view.pip_value = view.paused ? L"Selected" : L"Connected";
+            view.pip_detail =
+                view.paused
+                    ? L"Manual mode; Resume when ready."
+                    : L"DuckEggs is watching the selected manual target.";
+        } else if (candidates > 1) {
             view.pip_value = L"Multiple windows";
             view.pip_detail = L"Close all but one Chrome PiP window.";
         } else if (moving) {
@@ -890,6 +959,7 @@ private:
     }
 
     void open_heatmap();
+    void open_manual_picker();
 
     void open_donation_url(int command) const {
         std::wstring selected_url(kDonationUrl);
@@ -1289,7 +1359,7 @@ private:
         }
 
         const std::array<std::wstring, 3> labels{
-            L"Chrome PiP", L"Learning updates", L"Visual signals"};
+            L"PiP window", L"Learning updates", L"Visual signals"};
         const std::array<std::wstring, 3> values{
             view_.pip_value,
             view_.learning_value,
@@ -1378,7 +1448,9 @@ private:
             if (hovered && !selected) {
                 fill = 0xff8ce7d2;
             }
-        } else if (item.CtlID == kLearningButton) {
+        } else if (
+            item.CtlID == kLearningButton ||
+            item.CtlID == kChooseButton) {
             fill = hovered ? 0xff2a3544 : kSurfaceRaised;
             border = hovered ? kAccent : kBorderStrong;
         } else if (item.CtlID == kDonateButton) {
@@ -1506,6 +1578,11 @@ private:
             case kLearningButton:
                 open_heatmap();
                 return 0;
+            case kChooseButton:
+                if (HIWORD(wparam) == BN_CLICKED) {
+                    open_manual_picker();
+                }
+                return 0;
             case kDonateButton:
                 if (HIWORD(wparam) == BN_CLICKED) {
                     open_donation();
@@ -1582,8 +1659,11 @@ private:
     HWND window_{};
     AdaptiveApplication& application_;
     HeatmapWindow* heatmap_{};
+    ManualPickerWindow* manual_picker_{};
+    ManualPickerWindow* retired_manual_picker_{};
     HWND pause_button_{};
     HWND learning_button_{};
+    HWND choose_button_{};
     HWND donate_button_{};
     HWND tray_button_{};
     HWND exit_button_{};
@@ -1600,9 +1680,516 @@ private:
     bool tray_icon_added_{};
     bool hidden_to_tray_{};
     bool heatmap_visible_before_tray_{};
+    bool manual_visible_before_tray_{};
     MainView view_;
 
     friend class HeatmapWindow;
+    friend class ManualPickerWindow;
+};
+
+class ManualPickerWindow {
+public:
+    ManualPickerWindow(
+        AdaptiveApplication& application,
+        HWND owner,
+        ControlPanel& panel)
+        : application_(application), owner_(owner), panel_(panel) {
+        dpi_ = system_dpi();
+        create_fonts();
+        background_brush_ = CreateSolidBrush(kSurfaceGdi);
+        window_ = CreateWindowExW(
+            WS_EX_APPWINDOW,
+            kManualPickerClass,
+            L"DuckEggs - Choose PiP window",
+            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            MulDiv(700, static_cast<int>(dpi_), 96),
+            MulDiv(440, static_cast<int>(dpi_), 96),
+            owner_,
+            nullptr,
+            GetModuleHandleW(nullptr),
+            this);
+        if (window_ == nullptr) {
+            destroy_resources();
+            throw PlatformError(
+                "the manual PiP window chooser could not start");
+        }
+        create_controls();
+        update_bridge();
+        SetTimer(window_, kManualPickerTimer, 150, nullptr);
+    }
+
+    ~ManualPickerWindow() {
+        destroy_resources();
+    }
+
+    HWND window() const {
+        return window_;
+    }
+
+    static LRESULT CALLBACK window_proc(
+        HWND window,
+        UINT message,
+        WPARAM wparam,
+        LPARAM lparam);
+
+private:
+    int px(int logical) const {
+        return MulDiv(logical, static_cast<int>(dpi_), 96);
+    }
+
+    void create_fonts() {
+        destroy_fonts();
+        title_font_ = make_font(dpi_, 20, FW_SEMIBOLD);
+        body_font_ = make_font(dpi_, 13, FW_NORMAL);
+        semibold_font_ = make_font(dpi_, 13, FW_SEMIBOLD);
+        small_font_ = make_font(dpi_, 12, FW_NORMAL);
+    }
+
+    void destroy_fonts() {
+        std::array<HFONT*, 4> fonts{
+            &title_font_, &body_font_, &semibold_font_, &small_font_};
+        for (HFONT* font : fonts) {
+            if (*font != nullptr) {
+                DeleteObject(*font);
+                *font = nullptr;
+            }
+        }
+    }
+
+    void destroy_resources() {
+        if (window_ != nullptr) {
+            KillTimer(window_, kManualPickerTimer);
+        }
+        if (background_brush_ != nullptr) {
+            DeleteObject(background_brush_);
+            background_brush_ = nullptr;
+        }
+        destroy_fonts();
+    }
+
+    HWND make_control(
+        const wchar_t* class_name,
+        const wchar_t* text,
+        DWORD style,
+        int identifier,
+        DWORD extended_style = 0) {
+        return CreateWindowExW(
+            extended_style,
+            class_name,
+            text,
+            WS_CHILD | WS_VISIBLE | style,
+            0,
+            0,
+            0,
+            0,
+            window_,
+            reinterpret_cast<HMENU>(
+                static_cast<INT_PTR>(identifier)),
+            GetModuleHandleW(nullptr),
+            nullptr);
+    }
+
+    void create_controls() {
+        help_ = make_control(
+            L"STATIC",
+            L"Select the floating video window you want DuckEggs to move.",
+            SS_LEFT,
+            0);
+        mode_ = make_control(L"STATIC", L"", SS_LEFT, 0);
+        error_ = make_control(L"STATIC", L"", SS_LEFT, 0);
+        list_ = CreateWindowExW(
+            WS_EX_CLIENTEDGE,
+            WC_LISTVIEWW,
+            L"",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | LVS_REPORT |
+                LVS_SINGLESEL | LVS_SHOWSELALWAYS,
+            0,
+            0,
+            0,
+            0,
+            window_,
+            reinterpret_cast<HMENU>(
+                static_cast<INT_PTR>(kManualWindowList)),
+            GetModuleHandleW(nullptr),
+            nullptr);
+        refresh_ = make_control(
+            L"BUTTON",
+            L"Refresh",
+            WS_TABSTOP | BS_PUSHBUTTON,
+            kManualRefresh);
+        automatic_ = make_control(
+            L"BUTTON",
+            L"Automatic",
+            WS_TABSTOP | BS_PUSHBUTTON,
+            kManualAutomatic);
+        use_ = make_control(
+            L"BUTTON",
+            L"Use window",
+            WS_TABSTOP | BS_DEFPUSHBUTTON,
+            kManualUse);
+        cancel_ = make_control(
+            L"BUTTON",
+            L"Cancel",
+            WS_TABSTOP | BS_PUSHBUTTON,
+            kManualCancel);
+        EnableWindow(use_, FALSE);
+        if (list_ != nullptr) {
+            SendMessageW(
+                list_,
+                WM_SETFONT,
+                reinterpret_cast<WPARAM>(body_font_),
+                TRUE);
+            ListView_SetExtendedListViewStyle(
+                list_,
+                LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES |
+                    LVS_EX_DOUBLEBUFFER);
+            LVCOLUMNW title{};
+            title.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_FMT | LVCF_SUBITEM;
+            title.pszText = const_cast<wchar_t*>(L"Window title");
+            title.cx = px(330);
+            title.fmt = LVCFMT_LEFT;
+            title.iSubItem = 0;
+            ListView_InsertColumn(list_, 0, &title);
+            LVCOLUMNW executable{};
+            executable.mask =
+                LVCF_TEXT | LVCF_WIDTH | LVCF_FMT | LVCF_SUBITEM;
+            executable.pszText = const_cast<wchar_t*>(L"Executable");
+            executable.cx = px(170);
+            executable.fmt = LVCFMT_LEFT;
+            executable.iSubItem = 1;
+            ListView_InsertColumn(list_, 1, &executable);
+            LVCOLUMNW dimensions{};
+            dimensions.mask =
+                LVCF_TEXT | LVCF_WIDTH | LVCF_FMT | LVCF_SUBITEM;
+            dimensions.pszText = const_cast<wchar_t*>(L"Dimensions");
+            dimensions.cx = px(130);
+            dimensions.fmt = LVCFMT_RIGHT;
+            dimensions.iSubItem = 2;
+            ListView_InsertColumn(list_, 2, &dimensions);
+        }
+        apply_fonts();
+        layout_controls();
+    }
+
+    void layout_controls() {
+        if (window_ == nullptr) {
+            return;
+        }
+        RECT client{};
+        GetClientRect(window_, &client);
+        const int margin = px(16);
+        const int width = std::max(0, client.right - margin * 2);
+        const int button_height = px(34);
+        const int button_top =
+            client.bottom - margin - button_height;
+        auto move = [&](HWND control, int left, int top, int w, int h) {
+            if (control != nullptr) {
+                MoveWindow(control, left, top, std::max(0, w),
+                           std::max(0, h), TRUE);
+            }
+        };
+        move(help_, margin, px(52), width, px(22));
+        move(mode_, margin, px(76), width, px(34));
+        move(error_, margin, px(112), width, px(34));
+        move(
+            list_,
+            margin,
+            px(154),
+            width,
+            std::max(px(100), button_top - px(48) - px(154)));
+        const int right = client.right - margin;
+        move(cancel_, right - px(90), button_top, px(90), button_height);
+        move(
+            use_,
+            right - px(90) - px(8) - px(112),
+            button_top,
+            px(112),
+            button_height);
+        move(
+            automatic_,
+            margin,
+            button_top,
+            px(104),
+            button_height);
+        move(
+            refresh_,
+            margin + px(104) + px(8),
+            button_top,
+            px(84),
+            button_height);
+        InvalidateRect(window_, nullptr, FALSE);
+    }
+
+    void rebuild_windows(const Json& windows) {
+        updating_ = true;
+        ListView_DeleteAllItems(list_);
+        tokens_.clear();
+        EnableWindow(use_, FALSE);
+        if (windows.is_array()) {
+            for (const Json& item : windows) {
+                const std::string token =
+                    string_field(item, "selection_token").value_or("");
+                if (token.empty()) {
+                    continue;
+                }
+                const int index = static_cast<int>(tokens_.size());
+                const std::wstring title =
+                    clean_wide(
+                        string_field(item, "title").value_or(""),
+                        300);
+                const std::wstring executable =
+                    clean_wide(
+                        string_field(item, "executable").value_or(""),
+                        120);
+                const int window_width =
+                    integer_field(item, "width");
+                const int window_height =
+                    integer_field(item, "height");
+                const std::wstring dimensions =
+                    std::to_wstring(window_width) + L" \u00d7 " +
+                    std::to_wstring(window_height);
+                LVITEMW row{};
+                row.mask = LVIF_TEXT;
+                row.iItem = index;
+                row.iSubItem = 0;
+                row.pszText = const_cast<wchar_t*>(title.c_str());
+                if (ListView_InsertItem(list_, &row) < 0) {
+                    continue;
+                }
+                ListView_SetItemText(
+                    list_,
+                    index,
+                    1,
+                    const_cast<wchar_t*>(executable.c_str()));
+                ListView_SetItemText(
+                    list_,
+                    index,
+                    2,
+                    const_cast<wchar_t*>(dimensions.c_str()));
+                tokens_.push_back(token);
+            }
+        }
+        updating_ = false;
+        ListView_SetItemState(
+            list_, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+        EnableWindow(use_, FALSE);
+    }
+
+    void update_bridge() {
+        const Json next = application_.manual_snapshot();
+        const int revision = integer_field(next, "revision");
+        const Json windows =
+            next.contains("windows") && next["windows"].is_array()
+                ? next["windows"]
+                : Json::array();
+        if (windows != windows_) {
+            windows_ = windows;
+            rebuild_windows(windows_);
+        }
+        if (revision == revision_ && next == bridge_) {
+            return;
+        }
+        bridge_ = next;
+        revision_ = revision;
+        const bool supported =
+            bool_field(next, "supported");
+        const std::string mode =
+            string_field(next, "mode").value_or("automatic");
+        SetWindowTextW(
+            mode_,
+            mode == "manual"
+                ? L"Current mode: Manual. DuckEggs stays paused while you "
+                  L"adjust the selection."
+                : L"Current mode: Automatic Chrome discovery. DuckEggs stays "
+                  L"paused while you choose.");
+        std::wstring message;
+        if (!supported) {
+            message =
+                L"Manual selection is unavailable in this build.";
+        } else if (
+            next.contains("error") && next["error"].is_string()) {
+            message = clean_wide(next["error"].get<std::string>(), 260);
+        } else if (windows_.empty()) {
+            message =
+                L"No eligible windows are listed. Open or restore a window, "
+                L"then choose Refresh.";
+        } else if (mode == "manual") {
+            message =
+                L"The selected window is pinned for this session. You can "
+                L"choose another window or return to Automatic.";
+        } else {
+            message =
+                L"Choose a row, then select Use window. Refresh lists windows "
+                L"again.";
+        }
+        SetWindowTextW(error_, message.c_str());
+        EnableWindow(refresh_, supported ? TRUE : FALSE);
+    }
+
+    void use_selected() {
+        const int index = ListView_GetNextItem(
+            list_, -1, LVNI_SELECTED);
+        if (index < 0 ||
+            static_cast<std::size_t>(index) >= tokens_.size()) {
+            return;
+        }
+        EnableWindow(use_, FALSE);
+        application_.request_manual_selection(
+            tokens_[static_cast<std::size_t>(index)]);
+    }
+
+    void close() {
+        application_.request_manual_picker_closed();
+        DestroyWindow(window_);
+    }
+
+    LRESULT handle(UINT message, WPARAM wparam, LPARAM lparam) {
+        switch (message) {
+        case WM_SIZE:
+            layout_controls();
+            return 0;
+        case WM_DPICHANGED: {
+            dpi_ = static_cast<UINT>(HIWORD(wparam));
+            create_fonts();
+            apply_fonts();
+            const auto* suggested =
+                reinterpret_cast<const RECT*>(lparam);
+            SetWindowPos(
+                window_,
+                nullptr,
+                suggested->left,
+                suggested->top,
+                suggested->right - suggested->left,
+                suggested->bottom - suggested->top,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+            layout_controls();
+            return 0;
+        }
+        case WM_GETMINMAXINFO: {
+            auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+            info->ptMinTrackSize.x = px(560);
+            info->ptMinTrackSize.y = px(340);
+            return 0;
+        }
+        case WM_COMMAND:
+            switch (LOWORD(wparam)) {
+            case kManualRefresh:
+                if (HIWORD(wparam) == BN_CLICKED) {
+                    application_.request_manual_refresh();
+                }
+                return 0;
+            case kManualAutomatic:
+                if (HIWORD(wparam) == BN_CLICKED) {
+                    application_.request_manual_reset();
+                }
+                return 0;
+            case kManualUse:
+                if (HIWORD(wparam) == BN_CLICKED) {
+                    use_selected();
+                }
+                return 0;
+            case kManualCancel:
+                if (HIWORD(wparam) == BN_CLICKED) {
+                    close();
+                }
+                return 0;
+            default:
+                break;
+            }
+            break;
+        case WM_NOTIFY: {
+            const auto* notification =
+                reinterpret_cast<const NMHDR*>(lparam);
+            if (notification != nullptr &&
+                notification->idFrom == kManualWindowList &&
+                notification->code == LVN_ITEMCHANGED &&
+                !updating_) {
+                const auto* changed =
+                    reinterpret_cast<const NMLISTVIEW*>(lparam);
+                if ((changed->uNewState & LVIS_SELECTED) != 0 &&
+                    (changed->uOldState & LVIS_SELECTED) == 0) {
+                    EnableWindow(use_, TRUE);
+                } else if (
+                    (changed->uNewState & LVIS_SELECTED) == 0) {
+                    EnableWindow(use_, FALSE);
+                }
+            }
+            break;
+        }
+        case WM_TIMER:
+            if (wparam == kManualPickerTimer) {
+                update_bridge();
+                return 0;
+            }
+            break;
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_CTLCOLORSTATIC: {
+            HDC device = reinterpret_cast<HDC>(wparam);
+            SetBkMode(device, TRANSPARENT);
+            SetTextColor(device, kTextGdi);
+            return reinterpret_cast<LRESULT>(background_brush_);
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT paint{};
+            HDC device = BeginPaint(window_, &paint);
+            RECT client{};
+            GetClientRect(window_, &client);
+            FillRect(device, &client, background_brush_);
+            SetBkMode(device, TRANSPARENT);
+            SetTextColor(device, kTextGdi);
+            RECT title{margin_for_paint(), px(14),
+                       client.right - px(16), px(44)};
+            draw_text(
+                device,
+                L"Choose the PiP window",
+                title,
+                kTextGdi,
+                title_font_);
+            EndPaint(window_, &paint);
+            return 0;
+        }
+        case WM_CLOSE:
+            close();
+            return 0;
+        default:
+            break;
+        }
+        return DefWindowProcW(window_, message, wparam, lparam);
+    }
+
+    int margin_for_paint() const {
+        return px(16);
+    }
+
+    HWND window_{};
+    HWND destroyed_window_{};
+    HWND owner_{};
+    AdaptiveApplication& application_;
+    ControlPanel& panel_;
+    HWND help_{};
+    HWND mode_{};
+    HWND error_{};
+    HWND list_{};
+    HWND refresh_{};
+    HWND automatic_{};
+    HWND use_{};
+    HWND cancel_{};
+    HFONT title_font_{};
+    HFONT body_font_{};
+    HFONT semibold_font_{};
+    HFONT small_font_{};
+    HBRUSH background_brush_{};
+    UINT dpi_{96};
+    int revision_{-1};
+    bool updating_{};
+    Json bridge_ = Json::object();
+    Json windows_ = Json::array();
+    std::vector<std::string> tokens_;
+
+    friend class ControlPanel;
 };
 
 struct HeatmapLayout {
@@ -3004,6 +3591,17 @@ private:
 
 ControlPanel::~ControlPanel() {
     remove_tray_icon();
+    if (manual_picker_ != nullptr) {
+        ManualPickerWindow* picker = manual_picker_;
+        HWND picker_window = picker->window();
+        manual_picker_ = nullptr;
+        if (picker_window != nullptr && IsWindow(picker_window)) {
+            DestroyWindow(picker_window);
+        }
+        delete picker;
+    }
+    delete retired_manual_picker_;
+    retired_manual_picker_ = nullptr;
     if (heatmap_ != nullptr) {
         DestroyWindow(heatmap_->window());
         heatmap_ = nullptr;
@@ -3034,6 +3632,12 @@ void ControlPanel::hide_to_tray() {
     if (heatmap_visible_before_tray_) {
         ShowWindow(heatmap_->window(), SW_HIDE);
     }
+    manual_visible_before_tray_ =
+        manual_picker_ != nullptr &&
+        IsWindowVisible(manual_picker_->window()) != FALSE;
+    if (manual_visible_before_tray_) {
+        ShowWindow(manual_picker_->window(), SW_HIDE);
+    }
     ShowWindow(window_, SW_HIDE);
 }
 
@@ -3051,7 +3655,14 @@ void ControlPanel::restore_from_tray(bool re_add_failed) {
         ShowWindow(heatmap_->window(), SW_SHOW);
         foreground = heatmap_->window();
     }
+    if (manual_visible_before_tray_ &&
+        manual_picker_ != nullptr &&
+        IsWindow(manual_picker_->window())) {
+        ShowWindow(manual_picker_->window(), SW_SHOW);
+        foreground = manual_picker_->window();
+    }
     heatmap_visible_before_tray_ = false;
+    manual_visible_before_tray_ = false;
     if (foreground != nullptr) {
         SetForegroundWindow(foreground);
     }
@@ -3072,6 +3683,15 @@ void ControlPanel::heatmap_destroyed(HWND window) {
     }
 }
 
+void ControlPanel::manual_picker_destroyed(HWND window) {
+    if (manual_picker_ != nullptr &&
+        manual_picker_->destroyed_window_ == window) {
+        retired_manual_picker_ = manual_picker_;
+        manual_picker_ = nullptr;
+        manual_visible_before_tray_ = false;
+    }
+}
+
 void ControlPanel::open_heatmap() {
     if (heatmap_ != nullptr && IsWindow(heatmap_->window())) {
         ShowWindow(heatmap_->window(), SW_RESTORE);
@@ -3085,6 +3705,33 @@ void ControlPanel::open_heatmap() {
         UpdateWindow(heatmap_->window());
         SetForegroundWindow(heatmap_->window());
     } catch (const std::exception& exception) {
+        MessageBoxW(
+            window_,
+            clean_wide(exception.what()).c_str(),
+            L"DuckEggs",
+            MB_OK | MB_ICONERROR);
+    }
+}
+
+void ControlPanel::open_manual_picker() {
+    if (manual_picker_ != nullptr &&
+        IsWindow(manual_picker_->window())) {
+        ShowWindow(manual_picker_->window(), SW_RESTORE);
+        SetForegroundWindow(manual_picker_->window());
+        application_.request_manual_refresh();
+        return;
+    }
+    delete retired_manual_picker_;
+    retired_manual_picker_ = nullptr;
+    try {
+        application_.request_manual_picker();
+        manual_picker_ = new ManualPickerWindow(
+            application_, window_, *this);
+        ShowWindow(manual_picker_->window(), SW_SHOWNORMAL);
+        UpdateWindow(manual_picker_->window());
+        SetForegroundWindow(manual_picker_->window());
+    } catch (const std::exception& exception) {
+        application_.request_manual_picker_closed();
         MessageBoxW(
             window_,
             clean_wide(exception.what()).c_str(),
@@ -3138,6 +3785,39 @@ LRESULT CALLBACK HeatmapWindow::window_proc(
     }
     if (heatmap != nullptr) {
         return heatmap->handle(message, wparam, lparam);
+    }
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+
+LRESULT CALLBACK ManualPickerWindow::window_proc(
+    HWND window,
+    UINT message,
+    WPARAM wparam,
+    LPARAM lparam) {
+    ManualPickerWindow* picker =
+        reinterpret_cast<ManualPickerWindow*>(
+            GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        auto* create = reinterpret_cast<CREATESTRUCTW*>(lparam);
+        picker = static_cast<ManualPickerWindow*>(
+            create->lpCreateParams);
+        SetWindowLongPtrW(
+            window,
+            GWLP_USERDATA,
+            reinterpret_cast<LONG_PTR>(picker));
+        if (picker != nullptr) {
+            picker->window_ = window;
+        }
+    }
+    if (picker != nullptr) {
+        const LRESULT result =
+            picker->handle(message, wparam, lparam);
+        if (message == WM_NCDESTROY) {
+            picker->destroyed_window_ = window;
+            picker->window_ = nullptr;
+            picker->panel_.manual_picker_destroyed(window);
+        }
+        return result;
     }
     return DefWindowProcW(window, message, wparam, lparam);
 }
@@ -3202,6 +3882,34 @@ void register_classes() {
         throw PlatformError(
             "the Learning maps window class could not register");
     }
+
+    WNDCLASSEXW chooser{};
+    chooser.cbSize = sizeof(chooser);
+    chooser.style = CS_HREDRAW | CS_VREDRAW;
+    chooser.lpfnWndProc = &ManualPickerWindow::window_proc;
+    chooser.hInstance = GetModuleHandleW(nullptr);
+    chooser.hIcon = reinterpret_cast<HICON>(LoadImageW(
+        chooser.hInstance,
+        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXICON),
+        GetSystemMetrics(SM_CYICON),
+        LR_DEFAULTCOLOR | LR_SHARED));
+    chooser.hIconSm = reinterpret_cast<HICON>(LoadImageW(
+        chooser.hInstance,
+        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON),
+        GetSystemMetrics(SM_CYSMICON),
+        LR_DEFAULTCOLOR | LR_SHARED));
+    chooser.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    chooser.hbrBackground = nullptr;
+    chooser.lpszClassName = kManualPickerClass;
+    if (RegisterClassExW(&chooser) == 0 &&
+        GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        throw PlatformError(
+            "the manual PiP window chooser class could not register");
+    }
     registered = true;
 }
 
@@ -3233,6 +3941,10 @@ private:
 
 bool run_platform_ui(AdaptiveApplication& application) {
     enable_per_monitor_dpi();
+    INITCOMMONCONTROLSEX controls{};
+    controls.dwSize = sizeof(controls);
+    controls.dwICC = ICC_LISTVIEW_CLASSES;
+    (void)InitCommonControlsEx(&controls);
     GdiplusSession gdiplus;
     if (!gdiplus.started()) {
         return false;

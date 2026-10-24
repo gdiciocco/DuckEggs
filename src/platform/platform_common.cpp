@@ -355,6 +355,25 @@ Json Backend::probe() {
     return result;
 }
 
+ManualWindowSnapshot Backend::manual_windows() {
+    return {
+        false,
+        std::string("This platform does not support manual window selection."),
+        {}};
+}
+
+ManualTargetStatus Backend::manual_target_status() const {
+    return {};
+}
+
+bool Backend::select_manual_window(std::string_view) {
+    return false;
+}
+
+bool Backend::reset_manual_target() {
+    return false;
+}
+
 void Backend::start_hotkeys(
     std::function<void()>,
     std::function<void()>) {}

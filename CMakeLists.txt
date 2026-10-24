@@ -183,6 +183,15 @@ if(SCHIVA_BUILD_TESTS)
         add_test(NAME test_core COMMAND test_core)
     endif()
 
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_manual_selection.cpp")
+        add_executable(
+            test_manual_selection tests/test_manual_selection.cpp)
+        target_link_libraries(
+            test_manual_selection PRIVATE
+                schiva_ui schiva_runtime schiva_platform)
+        add_test(NAME test_manual_selection COMMAND test_manual_selection)
+    endif()
+
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/parity_runner.cpp")
         add_executable(parity_runner tests/parity_runner.cpp)
         target_link_libraries(parity_runner PRIVATE schiva_core)

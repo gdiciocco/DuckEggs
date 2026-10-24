@@ -71,9 +71,15 @@ public:
     void request_pause();
     void request_quit();
     void request_insights(std::optional<std::string> profile_key = std::nullopt);
+    void request_manual_picker();
+    void request_manual_refresh();
+    void request_manual_selection(std::string selection_token);
+    void request_manual_reset();
+    void request_manual_picker_closed();
 
     Json snapshot() const;
     Json insights_snapshot() const;
+    Json manual_snapshot() const;
     bool finished() const;
     int exit_code() const;
 
