@@ -194,6 +194,7 @@ struct VisualEvidence {
     bool burst{};
     bool sustained{};
     bool conflict{};
+    bool broad{};
     double change_ratio{};
 };
 
@@ -208,6 +209,7 @@ public:
     VisualEvidence observe(double now, const VisualFrame& frame,
                            const std::optional<Rect>& pip_rect,
                            const std::optional<std::string>& context_key);
+    [[nodiscard]] bool broad_active_at(double now) const;
     [[nodiscard]] bool grace_active_at(double now) const;
     [[nodiscard]] bool conflict_for(const Rect& pip_rect) const;
     [[nodiscard]] double risk_for(
@@ -238,12 +240,15 @@ private:
     std::vector<double> sustained_mask_;
     std::vector<int> active_streak_;
     std::optional<std::vector<double>> previous_;
+    std::optional<std::vector<std::uint8_t>> previous_pixels_;
     std::optional<std::vector<bool>> previous_valid_;
     std::optional<std::vector<bool>> last_valid_;
     std::optional<Geometry> geometry_;
     std::optional<double> last_now_;
     std::optional<double> last_sustained_at_;
+    double broad_until_{-1.0};
     double grace_until_{-1.0};
+    bool previous_broad_candidate_{};
     bool valid_seen_{};
 
     [[nodiscard]] std::vector<double> cell_means(
@@ -251,6 +256,7 @@ private:
     [[nodiscard]] Rect screen_cell(const Rect& bounds, int index) const;
     [[nodiscard]] std::vector<bool> valid_cells(
         const VisualFrame& frame, const std::optional<Rect>& pip_rect) const;
+    void clear_spatial_activity();
 };
 
 struct ProfileRow {

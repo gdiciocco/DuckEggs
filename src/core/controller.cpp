@@ -27,18 +27,6 @@ constexpr double kQuietInputMaxAgeSeconds = 1.0;
 constexpr double kReturnApproachSeconds = 0.12;
 constexpr double kMaintenanceIntervalSeconds = 1.0 / 30.0;
 
-bool same_rect(const std::optional<Rect>& first,
-               const std::optional<Rect>& second,
-               int tolerance = 0) {
-    if (!first.has_value() || !second.has_value()) {
-        return first.has_value() == second.has_value();
-    }
-    return std::abs(first->left - second->left) <= tolerance &&
-           std::abs(first->top - second->top) <= tolerance &&
-           std::abs(first->right - second->right) <= tolerance &&
-           std::abs(first->bottom - second->bottom) <= tolerance;
-}
-
 bool same_rect(const Rect& first, const Rect& second,
                int tolerance = 0) {
     return std::abs(first.left - second.left) <= tolerance &&
@@ -51,6 +39,11 @@ bool same_point(const Point& first, const Point& second,
                 int tolerance = 0) {
     return std::abs(first.x - second.x) <= tolerance &&
            std::abs(first.y - second.y) <= tolerance;
+}
+
+bool sustained_visual_only(const std::string& reason) {
+    return reason == "sustained_visual" ||
+           reason.rfind("sustained_visual:", 0) == 0;
 }
 
 std::string ascii_lower(std::string value) {
@@ -189,6 +182,7 @@ struct Controller::Impl {
         Rect target;
         double due_at{};
         double exposure{};
+        bool quiet_censored{};
     };
 
     struct Motion {
@@ -542,7 +536,8 @@ struct Controller::Impl {
         }
         if (same_rect(pip_rect, pending->target, kPositionTolerance) &&
             recent_input && !observation.buttons_down &&
-            !inside_pip_control && !returning) {
+            !inside_pip_control && !returning &&
+            !pending->quiet_censored) {
             pending->exposure +=
                 std::min(std::max(elapsed, 0.0), 1.0);
         }
@@ -551,7 +546,7 @@ struct Controller::Impl {
         }
         if (same_rect(pip_rect, pending->target, kPositionTolerance) &&
             pending->exposure >= kExposureSeconds &&
-            !return_since.has_value()) {
+            !pending->quiet_censored && !return_since.has_value()) {
             learn(*pending, kQuietExposureReward);
         }
         pending.reset();
@@ -596,9 +591,10 @@ struct Controller::Impl {
         const bool fresh_visual_conflict =
             evidence.has_value() && evidence->sustained &&
             evidence->conflict;
-        if (fresh_visual_conflict ||
-            (visual.grace_active_at(now) &&
-             visual.conflict_for(rect))) {
+        if (!visual.broad_active_at(now) &&
+            (fresh_visual_conflict ||
+             (visual.grace_active_at(now) &&
+              visual.conflict_for(rect)))) {
             return "sustained_visual";
         }
         if (caret_conflict(observation.caret, rect)) {
@@ -760,6 +756,16 @@ struct Controller::Impl {
             return decision("manual_correction", std::nullopt,
                             std::nullopt, "manual_geometry_change",
                             observation.pip->rect);
+        }
+        if (visual.broad_active_at(now)) {
+            if (motion.has_value() &&
+                sustained_visual_only(motion->reason)) {
+                pending.reset();
+                motion.reset();
+                last_emitted_rect.reset();
+            } else if (pending.has_value()) {
+                pending->quiet_censored = true;
+            }
         }
         settle_pending(now, observation, elapsed);
         if (due) {
@@ -1046,7 +1052,7 @@ void Controller::movement_failed() {
 
 Json Controller::status() const {
     impl_->ensure_owner();
-    return {
+    Json status = {
         {"mode", "adaptive"},
         {"paused", impl_->paused_value},
         {"motion_active", impl_->motion.has_value()},
@@ -1056,6 +1062,11 @@ Json Controller::status() const {
                                     : Json(nullptr)},
         {"state", impl_->state},
         {"visual_available", impl_->visual_available}};
+    if (impl_->visual.broad_active_at(
+            impl_->current_now.value_or(0.0))) {
+        status["visual_broad_update"] = true;
+    }
+    return status;
 }
 
 Json Controller::insights(

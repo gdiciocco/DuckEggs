@@ -1,4 +1,4 @@
-# DuckEggs 0.4.0-preview.2
+# DuckEggs 0.4.0-preview.3
 
 DuckEggs is a native C++20 port of the Schiva adaptive Picture-in-Picture
 experience. It learns where Chrome's native PiP window fits your work and moves
@@ -62,6 +62,23 @@ Capture is a bounded one-worker latest-request/latest-result pipeline. Sampling
 is capped at 2 Hz and uses one in-memory 64 by 36 grayscale frame at a time.
 Stale frames are invalidated after pause, input, motion, context or geometry
 changes. Pixels and cursor traces are not persisted.
+
+Visual change detection keeps the existing tile-mean path for localized
+activity. It also compares pixels within comparable cells: a cell is counted
+only when it is outside the PiP, DuckEggs and other capture masks in both
+frames, and it changes when at least 25% of its pixels differ by 12 gray levels
+or more. At least 60% of the 16 by 9 cells (and at least eight cells) must be
+comparable. A frame is broadly active when at least 50% of comparable cells
+change, or when at least 35% change in two fresh successive captures and
+changes span at least half the grid's rows and columns.
+
+Broad activity suppresses only visual-evidence movement, clears outstanding
+visual risk, and latches for one second. Fresh broad captures extend the latch;
+time without broad captures does not. Localized updates can become actionable
+again after the latch expires. Cursor proximity and a genuine caret conflict
+remain independent triggers, and an actual manual correction can still cancel
+movement and supply its negative reward. The controller reports the latch as
+`visual_broad_update` in its status. Pixels remain memory-only.
 
 ## Adaptive runtime
 
@@ -154,7 +171,7 @@ cpack -C Release
 ```
 
 The portable artifact is
-`DuckEggs-0.4.0-preview.2-windows-x64.zip`. It contains the executable,
+`DuckEggs-0.4.0-preview.3-windows-x64.zip`. It contains the executable,
 launchers, documentation, and the complete SQLite and nlohmann/json license
 and provenance files under `licenses/`.
 

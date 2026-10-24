@@ -475,6 +475,10 @@ private:
                 ? core_status["visual_available"].is_boolean() &&
                       core_status["visual_available"].get<bool>()
                 : observation.visual_frame.has_value();
+        const bool visual_broad_update =
+            core_status.contains("visual_broad_update") &&
+            core_status["visual_broad_update"].is_boolean() &&
+            core_status["visual_broad_update"].get<bool>();
         Json status = {
             {"mode", "adaptive"},
             {"paused", paused},
@@ -494,6 +498,7 @@ private:
                        ? Json(*decision.context_key)
                        : Json(nullptr)},
             {"visual_available", visual_available},
+            {"visual_broad_update", visual_broad_update},
             {"capture_error",
              capabilities.contains("capture_error")
                  ? capabilities["capture_error"]

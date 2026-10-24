@@ -5,6 +5,38 @@
 #include <stdexcept>
 
 namespace schiva::detail {
+namespace {
+
+constexpr int kMeaningfulPixelDelta = 12;
+constexpr double kMeaningfulTileFraction = 0.25;
+constexpr double kMinimumComparableFraction = 0.60;
+constexpr double kBroadImmediateRatio = 0.50;
+constexpr double kBroadSuccessiveRatio = 0.35;
+constexpr double kBroadSuccessiveMaxGapSeconds = 1.5;
+constexpr double kBroadLatchSeconds = 1.0;
+
+struct TilePixels {
+    int left{};
+    int top{};
+    int right{};
+    int bottom{};
+};
+
+TilePixels tile_pixels(int columns, int rows, int width, int height,
+                       int index) {
+    const int row = index / columns;
+    const int column = index % columns;
+    const int left = column * width / columns;
+    const int right =
+        std::max(left + 1, (column + 1) * width / columns);
+    const int top = row * height / rows;
+    const int bottom =
+        std::max(top + 1, (row + 1) * height / rows);
+    return {left, top, std::min(right, width),
+            std::min(bottom, height)};
+}
+
+}  // namespace
 
 VisualActivityTracker::VisualActivityTracker(int columns, int rows)
     : columns_(columns), rows_(rows) {
@@ -22,12 +54,15 @@ void VisualActivityTracker::reset() {
     sustained_mask_.assign(size, 0.0);
     active_streak_.assign(size, 0);
     previous_.reset();
+    previous_pixels_.reset();
     previous_valid_.reset();
     last_valid_.reset();
     geometry_.reset();
     last_now_.reset();
     last_sustained_at_.reset();
+    broad_until_ = -1.0;
     grace_until_ = -1.0;
+    previous_broad_candidate_ = false;
     valid_seen_ = false;
 }
 
@@ -113,6 +148,18 @@ bool VisualActivityTracker::availability_at(double now,
            now - *last_now_ <= max_age;
 }
 
+bool VisualActivityTracker::broad_active_at(double now) const {
+    return valid_seen_ && last_now_.has_value() && now < broad_until_;
+}
+
+void VisualActivityTracker::clear_spatial_activity() {
+    std::fill(burst_mask_.begin(), burst_mask_.end(), 0.0);
+    std::fill(sustained_mask_.begin(), sustained_mask_.end(), 0.0);
+    std::fill(active_streak_.begin(), active_streak_.end(), 0);
+    last_sustained_at_.reset();
+    grace_until_ = -1.0;
+}
+
 VisualEvidence VisualActivityTracker::observe(
     double now, const VisualFrame& frame,
     const std::optional<Rect>& pip_rect,
@@ -127,6 +174,7 @@ VisualEvidence VisualActivityTracker::observe(
     if (geometry_.has_value() && !(*geometry_ == geometry)) {
         reset();
     }
+    const std::optional<double> previous_time = last_now_;
     const double elapsed = last_now_.has_value()
                                ? std::max(0.0, now - *last_now_)
                                : 0.0;
@@ -156,35 +204,128 @@ VisualEvidence VisualActivityTracker::observe(
     last_valid_ = valid_cells_now;
     const int valid_count = static_cast<int>(
         std::count(valid_cells_now.begin(), valid_cells_now.end(), true));
-    if (!previous_.has_value() || !previous_valid_.has_value() ||
-        valid_count == 0) {
+    if (!previous_.has_value() || !previous_pixels_.has_value() ||
+        !previous_valid_.has_value() || valid_count == 0) {
         previous_ = current;
+        previous_pixels_ = frame.pixels;
         previous_valid_ = valid_cells_now;
-        return {true, false, false, false, 0.0};
+        previous_broad_candidate_ = false;
+        VisualEvidence evidence;
+        evidence.valid = true;
+        return evidence;
     }
 
-    int changed_count = 0;
-    for (int index = 0; index < columns_ * rows_; ++index) {
+    const int total_cells = columns_ * rows_;
+    const int minimum_comparable = std::max(
+        8, static_cast<int>(std::ceil(total_cells *
+                                     kMinimumComparableFraction)));
+    int comparable_count = 0;
+    int broad_changed_count = 0;
+    std::vector<bool> changed_columns(static_cast<std::size_t>(columns_),
+                                      false);
+    std::vector<bool> changed_rows(static_cast<std::size_t>(rows_), false);
+    for (int index = 0; index < total_cells; ++index) {
         const bool comparable =
             valid_cells_now[index] && (*previous_valid_)[index];
-        const bool changed =
-            comparable &&
-            std::abs(current[index] - (*previous_)[index]) >= 12.0;
-        if (changed) {
-            ++changed_count;
-            burst_mask_[index] = 1.0;
-            ++active_streak_[index];
-            if (active_streak_[index] >= 2) {
-                sustained_mask_[index] = 1.0;
+        if (!comparable) {
+            continue;
+        }
+        ++comparable_count;
+        const TilePixels tile =
+            tile_pixels(columns_, rows_, frame.width, frame.height, index);
+        int pixel_count = 0;
+        int meaningful_count = 0;
+        for (int y = tile.top; y < tile.bottom; ++y) {
+            const std::size_t offset =
+                static_cast<std::size_t>(y) * frame.width;
+            for (int x = tile.left; x < tile.right; ++x) {
+                ++pixel_count;
+                const int previous = (*previous_pixels_)[offset + x];
+                const int present = frame.pixels[offset + x];
+                if (std::abs(present - previous) >=
+                    kMeaningfulPixelDelta) {
+                    ++meaningful_count;
+                }
             }
-        } else if (comparable) {
-            active_streak_[index] = 0;
-        } else {
-            active_streak_[index] = 0;
+        }
+        if (pixel_count > 0 &&
+            static_cast<double>(meaningful_count) / pixel_count >=
+                kMeaningfulTileFraction) {
+            ++broad_changed_count;
+            changed_columns[static_cast<std::size_t>(index % columns_)] =
+                true;
+            changed_rows[static_cast<std::size_t>(index / columns_)] = true;
         }
     }
+
+    int changed_column_count = 0;
+    int changed_row_count = 0;
+    if (broad_changed_count > 0) {
+        changed_column_count = static_cast<int>(std::count(
+            changed_columns.begin(), changed_columns.end(), true));
+        changed_row_count = static_cast<int>(
+            std::count(changed_rows.begin(), changed_rows.end(), true));
+    }
+    const bool spatial_extent =
+        changed_column_count * 2 >= columns_ &&
+        changed_row_count * 2 >= rows_;
+    const bool adequate_coverage =
+        comparable_count >= minimum_comparable;
+    const bool immediate_broad =
+        adequate_coverage && spatial_extent &&
+        static_cast<double>(broad_changed_count) >=
+            kBroadImmediateRatio * comparable_count;
+    const bool successive_candidate =
+        adequate_coverage && spatial_extent &&
+        static_cast<double>(broad_changed_count) >=
+            kBroadSuccessiveRatio * comparable_count;
+    const bool successive_fresh =
+        previous_broad_candidate_ && previous_time.has_value() &&
+        now - *previous_time <= kBroadSuccessiveMaxGapSeconds;
+    const bool successive_broad =
+        successive_fresh && successive_candidate;
+    const bool broad_current = immediate_broad || successive_broad;
+    previous_broad_candidate_ = successive_candidate;
+    if (broad_current) {
+        clear_spatial_activity();
+        broad_until_ = now + kBroadLatchSeconds;
+    }
+    const bool broad_suppression = broad_active_at(now);
+
+    int changed_count = 0;
+    if (!broad_suppression) {
+        for (int index = 0; index < total_cells; ++index) {
+            const bool comparable =
+                valid_cells_now[index] && (*previous_valid_)[index];
+            const bool changed =
+                comparable &&
+                std::abs(current[index] - (*previous_)[index]) >= 12.0;
+            if (changed) {
+                ++changed_count;
+                burst_mask_[index] = 1.0;
+                ++active_streak_[index];
+                if (active_streak_[index] >= 2) {
+                    sustained_mask_[index] = 1.0;
+                }
+            } else if (comparable) {
+                active_streak_[index] = 0;
+            } else {
+                active_streak_[index] = 0;
+            }
+        }
+    } else {
+        clear_spatial_activity();
+    }
     previous_ = current;
+    previous_pixels_ = frame.pixels;
     previous_valid_ = valid_cells_now;
+
+    if (broad_suppression) {
+        VisualEvidence evidence;
+        evidence.valid = true;
+        evidence.broad = true;
+        return evidence;
+    }
 
     const bool burst = changed_count > 0;
     int sustained_cells = 0;
@@ -221,16 +362,24 @@ VisualEvidence VisualActivityTracker::observe(
         valid_count == 0
             ? 0.0
             : static_cast<double>(changed_count) / valid_count;
-    return {true, burst, sustained, conflict, change_ratio};
+    VisualEvidence evidence;
+    evidence.valid = true;
+    evidence.burst = burst;
+    evidence.sustained = sustained;
+    evidence.conflict = conflict;
+    evidence.change_ratio = change_ratio;
+    return evidence;
 }
 
 bool VisualActivityTracker::grace_active_at(double now) const {
-    return availability_at(now) && last_sustained_at_.has_value() &&
+    return !broad_active_at(now) && availability_at(now) &&
+           last_sustained_at_.has_value() &&
            now < grace_until_;
 }
 
 bool VisualActivityTracker::conflict_for(const Rect& pip_rect) const {
-    if (!geometry_.has_value()) {
+    if (!geometry_.has_value() || !last_now_.has_value() ||
+        broad_active_at(*last_now_)) {
         return false;
     }
     const Rect& frame_bounds = geometry_->bounds;
@@ -250,6 +399,9 @@ bool VisualActivityTracker::conflict_for(const Rect& pip_rect) const {
 double VisualActivityTracker::risk_for(
     const Rect& target, const std::optional<VisualFrame>& frame,
     std::optional<double> now) const {
+    if (broad_active_at(now.value_or(last_now_.value_or(0.0)))) {
+        return 0.0;
+    }
     if (now.has_value() && !availability_at(*now)) {
         return 0.0;
     }

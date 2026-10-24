@@ -231,13 +231,13 @@ install(
     DESTINATION licenses)
 
 set(CPACK_PACKAGE_NAME "DuckEggs")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-preview.2")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-preview.3")
 set(CPACK_PACKAGE_FILE_NAME
-    "DuckEggs-${PROJECT_VERSION}-preview.2-windows-x64")
+    "DuckEggs-${PROJECT_VERSION}-preview.3-windows-x64")
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_SOURCE_GENERATOR "ZIP")
 set(CPACK_SOURCE_PACKAGE_FILE_NAME
-    "DuckEggs-${PROJECT_VERSION}-preview.2-source")
+    "DuckEggs-${PROJECT_VERSION}-preview.3-source")
 set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
 set(
     CPACK_SOURCE_IGNORE_FILES
