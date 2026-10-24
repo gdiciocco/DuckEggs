@@ -127,7 +127,7 @@ inline void draw_mark(
             61.0F * scale,
             61.0F * scale),
         13.5F * scale);
-    SolidBrush tile_fill(Color(detail::kSurface));
+    SolidBrush tile_fill{Color(detail::kSurface)};
     graphics.FillPath(&tile_fill, &tile);
     Pen tile_pen(
         Color(detail::kBorderStrong),
@@ -186,7 +186,7 @@ inline void draw_mark(
             point(head_points[index + 3].X, head_points[index + 3].Y));
     }
     head.CloseFigure();
-    SolidBrush head_fill(Color(detail::kBackground));
+    SolidBrush head_fill{Color(detail::kBackground)};
     Pen head_pen(
         Color(detail::kText),
         stroke_width * 1.15F);
@@ -194,7 +194,7 @@ inline void draw_mark(
     graphics.FillPath(&head_fill, &head);
     graphics.DrawPath(&head_pen, &head);
 
-    SolidBrush face(Color(detail::kText));
+    SolidBrush face{Color(detail::kText)};
     const PointF left_eye_logical = transformed({-4.2F, -1.2F});
     const PointF right_eye_logical = transformed({4.0F, 0.2F});
     const PointF left_eye =
@@ -279,7 +279,7 @@ inline void draw_mark(
         egg_point(0.0F, -2.0F).X,
         egg_point(0.0F, -2.0F).Y);
     const REAL yolk_radius = 4.5F * scale;
-    SolidBrush yolk(Color(detail::kWarm));
+    SolidBrush yolk{Color(detail::kWarm)};
     graphics.FillEllipse(
         &yolk,
         yolk_center.X - yolk_radius,
