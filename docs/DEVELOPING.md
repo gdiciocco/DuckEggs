@@ -131,8 +131,9 @@ or activate the viewer.
   its temporary topmost state. A window that was already topmost remains
   topmost. Forced process termination or a crash can bypass cleanup.
 - A movement target is revalidated for geometry, cursor and held buttons
-  immediately before it is applied. DuckEggs never activates, resizes,
-  reorders or closes a user window.
+  immediately before it is applied. DuckEggs never activates, resizes or closes
+  a user window. The temporary topmost behavior above is the only intentional
+  z-order change; moving a target does not otherwise reorder it.
 - The pointer must remain outside PiP controls and the native motion corridor.
   The destination must fit the monitor work area.
 - DuckEggs installs no keyboard hooks and does not log key contents.

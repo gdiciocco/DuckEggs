@@ -463,26 +463,28 @@ void apply_window_icons(HWND window, UINT dpi) {
     if (window == nullptr) {
         return;
     }
-    if (HICON large = load_shared_app_icon(32, dpi); large != nullptr) {
+    if (HICON large_icon = load_shared_app_icon(32, dpi);
+        large_icon != nullptr) {
         SendMessageW(
             window,
             WM_SETICON,
             ICON_BIG,
-            reinterpret_cast<LPARAM>(large));
+            reinterpret_cast<LPARAM>(large_icon));
     }
-    if (HICON small = load_shared_app_icon(16, dpi); small != nullptr) {
+    if (HICON small_icon = load_shared_app_icon(16, dpi);
+        small_icon != nullptr) {
         SendMessageW(
             window,
             WM_SETICON,
             ICON_SMALL,
-            reinterpret_cast<LPARAM>(small));
+            reinterpret_cast<LPARAM>(small_icon));
     }
 }
 
-HICON load_tray_app_icon() {
+HICON load_tray_app_icon(UINT dpi) {
     const int metric_width = GetSystemMetrics(SM_CXSMICON);
     const int metric_height = GetSystemMetrics(SM_CYSMICON);
-    const int dpi_size = MulDiv(16, static_cast<int>(system_dpi()), 96);
+    const int dpi_size = MulDiv(16, static_cast<int>(dpi), 96);
     const int pixels = std::max(
         1, std::max(dpi_size, std::max(metric_width, metric_height)));
     return reinterpret_cast<HICON>(LoadImageW(
@@ -1061,17 +1063,19 @@ private:
         icon.uID = kTrayIconId;
         (void)Shell_NotifyIconW(NIM_DELETE, &icon);
         tray_icon_added_ = false;
+        tray_icon_system_dpi_ = 0;
     }
 
     bool add_tray_icon() {
         remove_tray_icon();
+        const UINT tray_dpi = system_dpi();
         NOTIFYICONDATAW icon{};
         icon.cbSize = sizeof(icon);
         icon.hWnd = window_;
         icon.uID = kTrayIconId;
         icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
         icon.uCallbackMessage = kTrayIconMessage;
-        icon.hIcon = load_tray_app_icon();
+        icon.hIcon = load_tray_app_icon(tray_dpi);
         if (icon.hIcon == nullptr) {
             return false;
         }
@@ -1088,6 +1092,27 @@ private:
             remove_tray_icon();
             return false;
         }
+        tray_icon_system_dpi_ = tray_dpi;
+        return true;
+    }
+
+    bool refresh_tray_icon() {
+        const UINT tray_dpi = system_dpi();
+        if (!tray_icon_added_ ||
+            tray_icon_system_dpi_ == tray_dpi) {
+            return true;
+        }
+        NOTIFYICONDATAW icon{};
+        icon.cbSize = sizeof(icon);
+        icon.hWnd = window_;
+        icon.uID = kTrayIconId;
+        icon.uFlags = NIF_ICON;
+        icon.hIcon = load_tray_app_icon(tray_dpi);
+        if (icon.hIcon == nullptr ||
+            Shell_NotifyIconW(NIM_MODIFY, &icon) == FALSE) {
+            return false;
+        }
+        tray_icon_system_dpi_ = tray_dpi;
         return true;
     }
 
@@ -1551,7 +1576,7 @@ private:
                 suggested->bottom - suggested->top,
                 SWP_NOZORDER | SWP_NOACTIVATE);
             layout_controls();
-            if (hidden_to_tray_ && !add_tray_icon()) {
+            if (hidden_to_tray_ && !refresh_tray_icon()) {
                 restore_from_tray(true);
                 return 0;
             }
@@ -1698,6 +1723,7 @@ private:
     UINT taskbar_created_message_{};
     int hovered_control_{};
     bool tray_icon_added_{};
+    UINT tray_icon_system_dpi_{};
     bool hidden_to_tray_{};
     bool heatmap_visible_before_tray_{};
     bool manual_visible_before_tray_{};
@@ -2547,7 +2573,6 @@ public:
         ControlPanel& panel)
         : application_(application), owner_(owner), panel_(panel) {
         dpi_ = system_dpi();
-        create_fonts();
         window_ = CreateWindowExW(
             WS_EX_APPWINDOW,
             kHeatmapClass,
@@ -2565,10 +2590,6 @@ public:
             destroy_fonts();
             throw PlatformError("the Learning maps window could not start");
         }
-        dpi_ = dpi_for_window(window_);
-        create_fonts();
-        layout_controls();
-        apply_window_icons(window_, dpi_);
     }
 
     ~HeatmapWindow() {
@@ -3733,8 +3754,11 @@ private:
     LRESULT handle(UINT message, WPARAM wparam, LPARAM lparam) {
         switch (message) {
         case WM_CREATE:
+            dpi_ = dpi_for_window(window_);
+            create_fonts();
             create_controls();
             apply_window_chrome(window_);
+            apply_window_icons(window_, dpi_);
             return 0;
         case WM_SIZE:
             layout_controls();

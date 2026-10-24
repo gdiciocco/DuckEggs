@@ -9,8 +9,8 @@
 **Keeps floating windows out of your way.**
 
 DuckEggs is a small Windows app that moves a window when it gets in the way of
-your work. It was designed for browser picture-in-picture, and it can also keep
-any eligible top-level window you choose manually out of your busy work area.
+your work. It was designed for browser picture-in-picture, and manual selection
+can keep selected eligible windows on top and away from your busy work area.
 
 [Download DuckEggs 0.4.0-alpha.4 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.4/DuckEggs-0.4.0-alpha.4-windows-x64.zip)
 
@@ -25,7 +25,7 @@ for release details.
   locale titles.
 - Lets you choose any eligible visible window from a browser or another
   application.
-- Leaves your mouse usable while the video moves. Moving the pointer over the
+- Leaves your mouse usable while the target moves. Moving the pointer over the
   target controls stops movement.
 - Temporarily keeps the target window on top while DuckEggs is active and the
   window is bound, including while DuckEggs is paused.
