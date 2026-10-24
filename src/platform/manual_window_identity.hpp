@@ -30,8 +30,9 @@ enum class ManualTopmostAction {
     Restore,
 };
 
-// A new lease only remembers the original style. Promotion ownership becomes
-// true after SetWindowPos succeeded and its result was verified.
+// A new lease only remembers the original style. Promotion ownership is
+// committed immediately after SetWindowPos reports success, before its result
+// is verified, so a failed verification remains eligible for rollback.
 constexpr ManualTopmostLease manual_topmost_lease(
     bool originally_topmost) noexcept {
     return {originally_topmost, false};

@@ -43,6 +43,7 @@ constexpr double kMotionScanSeconds = 0.20;
 constexpr double kVisualNearPipPixels = 160.0;
 constexpr int kInnerMargin = 20;
 constexpr int kSafetyMargin = 28;
+constexpr int kManualCleanupAttempts = 3;
 constexpr DWORD kMaskProcessQuery = 0x1000;
 constexpr UINT kMoveFlags =
     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
@@ -2004,13 +2005,23 @@ private:
             return std::nullopt;
         }
 
+        const auto rect = window_rect(handle);
+        if (require_visible && !rect.has_value()) {
+            failure =
+                "The selected manual window geometry is unavailable.";
+            return std::nullopt;
+        }
+
         WindowRecord result = binding.record;
         result.process_id = process_id;
         result.class_name = class_name;
         result.title = window_title(handle);
         result.process_basename = process->basename;
         result.creation_time = process->creation_time;
-        result.rect = window_rect(handle).value_or(binding.record.rect);
+        // Cleanup may proceed without fresh geometry. In that case the cached
+        // rectangle is only carried through the identity-checked cleanup path;
+        // live observation and movement require a fresh rectangle above.
+        result.rect = rect.value_or(binding.record.rect);
         result.is_target = false;
         return result;
     }
@@ -2075,24 +2086,31 @@ private:
             return true;
         }
         std::string cleanup_error;
-        if (!cleanup_manual_binding(*manual_binding_, cleanup_error)) {
-            if (error != nullptr) {
-                try {
-                    *error = cleanup_error.empty()
-                                 ? "The manual window could not be released "
-                                   "safely."
-                                 : std::move(cleanup_error);
-                } catch (...) {
+        // Retry only through the routine that revalidates the complete
+        // marker, process, class, executable, and handle identity before each
+        // style or property mutation. Exhaustion retains the binding here so
+        // reset and replacement callers stay transactional.
+        for (int attempt = 0; attempt < kManualCleanupAttempts; ++attempt) {
+            if (cleanup_manual_binding(
+                    *manual_binding_, cleanup_error)) {
+                const HANDLE marker = manual_binding_->marker;
+                manual_binding_.reset();
+                if (marker != nullptr) {
+                    CloseHandle(marker);
                 }
+                return true;
             }
-            return false;
         }
-        const HANDLE marker = manual_binding_->marker;
-        manual_binding_.reset();
-        if (marker != nullptr) {
-            CloseHandle(marker);
+        if (error != nullptr) {
+            try {
+                *error = cleanup_error.empty()
+                             ? "The manual window could not be released "
+                               "safely."
+                             : std::move(cleanup_error);
+            } catch (...) {
+            }
         }
-        return true;
+        return false;
     }
 
     void discard_manual_binding() noexcept {

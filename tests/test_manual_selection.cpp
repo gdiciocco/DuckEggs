@@ -347,7 +347,8 @@ void test_manual_topmost_lease_policy() {
               originally_normal, true, true) ==
           ManualTopmostAction::None);
 
-    // Ownership starts only after a successful, verified promotion.
+    // Ownership starts after SetWindowPos succeeds, before verification, so a
+    // failed verification remains eligible for rollback.
     CHECK(manual_topmost_action(
               originally_normal, false, true) ==
           ManualTopmostAction::None);
