@@ -11,7 +11,12 @@ while DuckEggs is active.
 - The approved DuckEggs artwork now generates the application icon and preview
   resources from one checked-in master. The ICO includes DPI-relevant sizes
   from 16 through 256 pixels, and window and tray icons refresh at the
-  appropriate display scale.
+  appropriate display scale. Each native HICON is now loaded at its requested
+  pixel size instead of reusing a shared cached size.
+- **Start with Windows** is an optional, unchecked-by-default per-user setting.
+  It writes only the current executable path to the user's Run key after an
+  explicit checkbox click; DuckEggs still starts paused. If you move the app
+  folder, turn the option off and on again from its new location.
 - **Choose Window** replaces the PiP-specific manual-selection label. The
   product text now describes general window placement while automatic
   discovery remains limited to Chrome picture-in-picture.

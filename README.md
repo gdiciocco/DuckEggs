@@ -57,6 +57,11 @@ set up.
 DuckEggs starts paused. Close any other DuckEggs versions before starting it.
 Automatic mode accepts one Chrome picture-in-picture window at a time. Manual
 selection always leaves DuckEggs paused and lasts only for the current session.
+To start DuckEggs when you sign in, select **Start with Windows** in the
+window. This per-user option is off by default and does not require
+administrator access. DuckEggs still starts paused. If you move or rename the
+folder containing `DuckEggs.exe`, turn the option off and on again so Windows
+uses the new path.
 
 ## Window controls
 

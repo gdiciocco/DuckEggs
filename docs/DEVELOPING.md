@@ -47,6 +47,17 @@ current paused or running state. The notification-area icon restores the
 window; its menu provides Open, Pause/Resume and Exit. Closing the window
 exits DuckEggs.
 
+The **Start with Windows** checkbox is unchecked when no `DuckEggs` value is
+present in the current user's `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+key. Reading that value at launch is read-only. Only a user checkbox click
+creates or removes that one value; the command contains the quoted absolute
+path to the current executable. No administrator access is needed, and an
+error restores the checkbox to its previous state. Startup launches still
+begin paused. Moving or renaming the application folder leaves the old Run
+command stale; turn the option off and on again from the new location. Windows
+also limits Run command length, so deeply nested install paths may be rejected
+with an error and the checkbox restored.
+
 The more prominent gold **Donate** action opens the donation chooser.
 Donations are voluntary; the suggested one-time amounts are €2, €5 and €10,
 with a custom amount available through PayPal.
@@ -62,10 +73,12 @@ details. The ICO contains 32-bit DIB entries with alpha and AND masks at 16, 20,
 512 px preview is not an ICO dimension. No SVG is used as a reconstructed
 vector source.
 
-Top-level windows select shared 32 logical-pixel and 16 logical-pixel icon
-resources using their DPI and refresh those icons after `WM_DPICHANGED`. The
-tray icon uses the system small-icon metrics with the system DPI. Icons loaded
-with `LR_SHARED` are owned by the system and are not destroyed by DuckEggs.
+Top-level windows select 32 logical-pixel and 16 logical-pixel icon resources
+at their actual DPI and refresh those icons after `WM_DPICHANGED`. Tray icons
+use the current small-icon system metrics. HICONs are loaded without
+`LR_SHARED`, cached by actual pixel size, and owned by DuckEggs. The cache is
+destroyed only after the tray icon is removed, windows are destroyed, and the
+window classes are unregistered.
 
 `tools/render_duckeggs_icon.py` refuses to render unless the master hash and
 dimensions match the approved values. As a development-only artifact it also
@@ -290,7 +303,10 @@ runtime dependency.
 
 `test_platform` uses synthetic data for strict target identity, geometry,
 scheduling, status output, capture mailbox behavior, heatmap helpers and a
-SQLite backup round trip. It does not capture a real desktop or move a window.
+SQLite backup round trip. On Windows, `test_win32_icons` loads the embedded ICO
+through the same size-keyed cache as the UI and checks real HICON bitmap sizes
+and same-size cache reuse. It does not create windows or alter the registry.
+`test_platform` does not capture a real desktop or move a window.
 `test_manual_selection` uses a fake owner-thread backend to cover overlay pause
 barriers, queued toggle resistance, coalesced hover points, actual-click-point
 selection, full-screen rejection without selecting behind it, cancellation,

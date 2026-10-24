@@ -4,6 +4,7 @@
 
 #include "../platform/manual_window_identity.hpp"
 #include "brand_mark.hpp"
+#include "win32_icons.hpp"
 #include "schiva/heatmap.hpp"
 #include "schiva/runtime.hpp"
 
@@ -15,6 +16,7 @@
 #include <shellapi.h>
 #include <uxtheme.h>
 #include <windowsx.h>
+#include <winreg.h>
 
 #include <algorithm>
 #include <array>
@@ -40,6 +42,7 @@ constexpr int kExitButton = 1003;
 constexpr int kDonateButton = 1004;
 constexpr int kTrayButton = 1005;
 constexpr int kChooseButton = 1006;
+constexpr int kStartupCheckbox = 1007;
 constexpr int kProfileCombo = 1101;
 constexpr int kActivityLayer = 1111;
 constexpr int kManualLayer = 1112;
@@ -60,6 +63,10 @@ constexpr UINT kHoverMessage = WM_APP + 41;
 constexpr UINT kTrayIconMessage = WM_APP + 42;
 constexpr UINT kTrayIconId = 1;
 constexpr UINT_PTR kHoverSubclassId = 1;
+constexpr wchar_t kRunKeyPath[] =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+constexpr wchar_t kRunValueName[] = L"DuckEggs";
+constexpr std::size_t kRunCommandLimit = 260;
 
 constexpr COLORREF kBackgroundGdi = RGB(17, 21, 28);
 constexpr COLORREF kSurfaceGdi = RGB(27, 34, 45);
@@ -447,23 +454,24 @@ UINT system_dpi() {
     return dpi == 0 ? 96 : dpi;
 }
 
-HICON load_shared_app_icon(int logical_size, UINT dpi) {
+ui::detail::AppIconCache* g_app_icon_cache{};
+bool g_panel_class_registered{};
+bool g_heatmap_class_registered{};
+bool g_picker_class_registered{};
+
+HICON load_app_icon(int logical_size, UINT dpi) {
     const int pixels = std::max(
         1, MulDiv(logical_size, static_cast<int>(dpi), 96));
-    return reinterpret_cast<HICON>(LoadImageW(
-        GetModuleHandleW(nullptr),
-        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
-        IMAGE_ICON,
-        pixels,
-        pixels,
-        LR_DEFAULTCOLOR | LR_SHARED));
+    return g_app_icon_cache == nullptr
+        ? nullptr
+        : g_app_icon_cache->load(pixels);
 }
 
 void apply_window_icons(HWND window, UINT dpi) {
     if (window == nullptr) {
         return;
     }
-    if (HICON large_icon = load_shared_app_icon(32, dpi);
+    if (HICON large_icon = load_app_icon(32, dpi);
         large_icon != nullptr) {
         SendMessageW(
             window,
@@ -471,7 +479,7 @@ void apply_window_icons(HWND window, UINT dpi) {
             ICON_BIG,
             reinterpret_cast<LPARAM>(large_icon));
     }
-    if (HICON small_icon = load_shared_app_icon(16, dpi);
+    if (HICON small_icon = load_app_icon(16, dpi);
         small_icon != nullptr) {
         SendMessageW(
             window,
@@ -482,18 +490,131 @@ void apply_window_icons(HWND window, UINT dpi) {
 }
 
 HICON load_tray_app_icon(UINT dpi) {
-    const int metric_width = GetSystemMetrics(SM_CXSMICON);
-    const int metric_height = GetSystemMetrics(SM_CYSMICON);
+    const int metric_width = GetSystemMetricsForDpi(SM_CXSMICON, dpi);
+    const int metric_height = GetSystemMetricsForDpi(SM_CYSMICON, dpi);
     const int dpi_size = MulDiv(16, static_cast<int>(dpi), 96);
     const int pixels = std::max(
         1, std::max(dpi_size, std::max(metric_width, metric_height)));
-    return reinterpret_cast<HICON>(LoadImageW(
-        GetModuleHandleW(nullptr),
-        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
-        IMAGE_ICON,
-        pixels,
-        pixels,
-        LR_DEFAULTCOLOR | LR_SHARED));
+    return g_app_icon_cache == nullptr
+        ? nullptr
+        : g_app_icon_cache->load(pixels);
+}
+
+std::wstring current_executable_path() {
+    std::vector<wchar_t> path(512);
+    for (;;) {
+        const DWORD length = GetModuleFileNameW(
+            nullptr, path.data(), static_cast<DWORD>(path.size()));
+        if (length == 0) {
+            throw PlatformError("the executable path could not be read");
+        }
+        if (length < path.size() - 1) {
+            const std::wstring module_path(path.data(), length);
+            const DWORD full_size = GetFullPathNameW(
+                module_path.c_str(), 0, nullptr, nullptr);
+            if (full_size == 0) {
+                throw PlatformError("the absolute executable path could not be read");
+            }
+            std::vector<wchar_t> full_path(
+                static_cast<std::size_t>(full_size) + 1);
+            const DWORD full_length = GetFullPathNameW(
+                module_path.c_str(),
+                static_cast<DWORD>(full_path.size()),
+                full_path.data(),
+                nullptr);
+            if (full_length == 0 || full_length >= full_path.size()) {
+                throw PlatformError("the absolute executable path could not be read");
+            }
+            return std::wstring(full_path.data(), full_length);
+        }
+        if (path.size() >= 32768) {
+            throw PlatformError("the executable path is too long");
+        }
+        path.resize(std::min<std::size_t>(32768, path.size() * 2));
+    }
+}
+
+std::wstring startup_command() {
+    return L"\"" + current_executable_path() + L"\"";
+}
+
+bool startup_registration_enabled() {
+    HKEY key{};
+    const LSTATUS opened = RegOpenKeyExW(
+        HKEY_CURRENT_USER, kRunKeyPath, 0, KEY_QUERY_VALUE, &key);
+    if (opened == ERROR_FILE_NOT_FOUND) {
+        return false;
+    }
+    if (opened != ERROR_SUCCESS) {
+        throw PlatformError("the Windows startup setting could not be read");
+    }
+    DWORD type{};
+    DWORD bytes{};
+    const LSTATUS queried = RegQueryValueExW(
+        key, kRunValueName, nullptr, &type, nullptr, &bytes);
+    RegCloseKey(key);
+    if (queried == ERROR_FILE_NOT_FOUND) {
+        return false;
+    }
+    if (queried != ERROR_SUCCESS ||
+        (type != REG_SZ && type != REG_EXPAND_SZ) || bytes < sizeof(wchar_t)) {
+        throw PlatformError("the Windows startup setting is invalid or unreadable");
+    }
+    return true;
+}
+
+void set_startup_registration(bool enabled) {
+    HKEY key{};
+    if (enabled) {
+        const std::wstring command = startup_command();
+        if (command.size() + 1 > kRunCommandLimit) {
+            throw PlatformError(
+                "the executable path is too long for the Windows startup entry");
+        }
+        DWORD disposition{};
+        const LSTATUS created = RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            kRunKeyPath,
+            0,
+            nullptr,
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            nullptr,
+            &key,
+            &disposition);
+        (void)disposition;
+        if (created != ERROR_SUCCESS) {
+            throw PlatformError("Windows startup could not be enabled");
+        }
+        const DWORD bytes = static_cast<DWORD>(
+            (command.size() + 1) * sizeof(wchar_t));
+        const LSTATUS written = RegSetValueExW(
+            key,
+            kRunValueName,
+            0,
+            REG_SZ,
+            reinterpret_cast<const BYTE*>(command.c_str()),
+            bytes);
+        RegCloseKey(key);
+        if (written != ERROR_SUCCESS) {
+            throw PlatformError("Windows startup could not be enabled");
+        }
+        return;
+    }
+
+    const LSTATUS opened = RegOpenKeyExW(
+        HKEY_CURRENT_USER, kRunKeyPath, 0, KEY_SET_VALUE, &key);
+    if (opened == ERROR_FILE_NOT_FOUND) {
+        return;
+    }
+    if (opened != ERROR_SUCCESS) {
+        throw PlatformError("Windows startup could not be disabled");
+    }
+    const LSTATUS deleted = RegDeleteValueW(key, kRunValueName);
+    RegCloseKey(key);
+    if (deleted != ERROR_SUCCESS && deleted != ERROR_FILE_NOT_FOUND) {
+        throw PlatformError("Windows startup could not be disabled");
+    }
 }
 
 void enable_per_monitor_dpi() {
@@ -727,7 +848,7 @@ private:
         badge_font_ = make_font(dpi_, 12, FW_SEMIBOLD);
         for (HWND button :
              {pause_button_, learning_button_, choose_button_, donate_button_,
-              tray_button_, exit_button_}) {
+              tray_button_, exit_button_, startup_checkbox_}) {
             if (button != nullptr) {
                 SendMessageW(
                     button,
@@ -794,6 +915,43 @@ private:
         donate_button_ = make_button(kDonateButton, L"Donate");
         tray_button_ = make_button(kTrayButton, L"To tray");
         exit_button_ = make_button(kExitButton, L"Exit");
+        startup_checkbox_ = CreateWindowExW(
+            0,
+            L"BUTTON",
+            L"Start with Windows",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+            0,
+            0,
+            0,
+            0,
+            window_,
+            reinterpret_cast<HMENU>(
+                static_cast<INT_PTR>(kStartupCheckbox)),
+            GetModuleHandleW(nullptr),
+            nullptr);
+        if (startup_checkbox_ != nullptr) {
+            SendMessageW(
+                startup_checkbox_,
+                WM_SETFONT,
+                reinterpret_cast<WPARAM>(semibold_font_),
+                TRUE);
+            try {
+                startup_enabled_ = startup_registration_enabled();
+                SendMessageW(
+                    startup_checkbox_,
+                    BM_SETCHECK,
+                    startup_enabled_ ? BST_CHECKED : BST_UNCHECKED,
+                    0);
+            } catch (const std::exception& error) {
+                EnableWindow(startup_checkbox_, FALSE);
+                MessageBoxW(
+                    window_,
+                    L"The Windows startup setting could not be read. The option is disabled until DuckEggs is restarted.",
+                    L"DuckEggs startup setting",
+                    MB_OK | MB_ICONWARNING);
+                (void)error;
+            }
+        }
         background_brush_ = CreateSolidBrush(kBackgroundGdi);
         layout_controls();
     }
@@ -859,6 +1017,13 @@ private:
             px(12),
             px(78),
             px(30));
+        changed |= move_child_if_needed(
+            window_,
+            startup_checkbox_,
+            client.right - margin - px(78) - gap - px(174),
+            px(42),
+            px(174),
+            px(22));
         if (changed) {
             InvalidateRect(window_, nullptr, FALSE);
         }
@@ -1238,9 +1403,9 @@ private:
             motto_width,
             motto_height};
         const REAL metric_bottom = motto.Y - rpx(6);
-        REAL metric_top = rpx(90);
+        REAL metric_top = rpx(98);
         if (!view_.error.empty()) {
-            const REAL banner_top = rpx(61);
+            const REAL banner_top = rpx(68);
             const REAL banner_width =
                 std::max<REAL>(0, client.right - margin * 2.0F);
             const std::wstring error_message =
@@ -1343,14 +1508,17 @@ private:
         RECT subtitle{
             client.left + px(79),
             px(38),
-            static_cast<LONG>(badge.X) - px(10),
+            std::min<LONG>(
+                static_cast<LONG>(badge.X) - px(10),
+                client.right - px(16) - px(78) - px(8) - px(174) - px(8)),
             px(60)};
         draw_text(
             device,
             L"Adaptive window placement",
             subtitle,
             kSecondaryGdi,
-            small_font_);
+            small_font_,
+            DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
 
         const RectF badge_text_area = badge;
         RECT badge_text{
@@ -1371,15 +1539,15 @@ private:
             graphics.FillEllipse(
                 &status_dot,
                 margin,
-                rpx(70),
+                rpx(75),
                 rpx(6),
                 rpx(6));
             graphics.Flush();
             RECT status{
                 static_cast<LONG>(margin + rpx(13)),
-                px(63),
+                px(68),
                 client.right - px(16),
-                px(84)};
+                px(89)};
             draw_text(
                 device,
                 view_.observe_only
@@ -1628,6 +1796,33 @@ private:
                     open_manual_picker();
                 }
                 return 0;
+            case kStartupCheckbox:
+                if (HIWORD(wparam) == BN_CLICKED &&
+                    startup_checkbox_ != nullptr) {
+                    const bool requested = SendMessageW(
+                        startup_checkbox_, BM_GETCHECK, 0, 0) ==
+                        BST_CHECKED;
+                    try {
+                        set_startup_registration(requested);
+                        startup_enabled_ = requested;
+                    } catch (const std::exception& error) {
+                        SendMessageW(
+                            startup_checkbox_,
+                            BM_SETCHECK,
+                            startup_enabled_ ? BST_CHECKED : BST_UNCHECKED,
+                            0);
+                        const std::wstring message =
+                            L"The Windows startup setting could not be changed. " +
+                            wide(error.what());
+                        MessageBoxW(
+                            window_,
+                            message.c_str(),
+                            L"DuckEggs startup setting",
+                            MB_OK | MB_ICONERROR);
+                    }
+                    return 0;
+                }
+                return 0;
             case kDonateButton:
                 if (HIWORD(wparam) == BN_CLICKED) {
                     open_donation();
@@ -1712,6 +1907,7 @@ private:
     HWND donate_button_{};
     HWND tray_button_{};
     HWND exit_button_{};
+    HWND startup_checkbox_{};
     HFONT heading_font_{};
     HFONT title_font_{};
     HFONT body_font_{};
@@ -1727,6 +1923,7 @@ private:
     bool hidden_to_tray_{};
     bool heatmap_visible_before_tray_{};
     bool manual_visible_before_tray_{};
+    bool startup_enabled_{};
     MainView view_;
 
     friend class HeatmapWindow;
@@ -4177,9 +4374,36 @@ LRESULT CALLBACK ManualPickerWindow::window_proc(
     return DefWindowProcW(window, message, wparam, lparam);
 }
 
+bool unregister_classes() {
+    const HINSTANCE instance = GetModuleHandleW(nullptr);
+    bool success = true;
+    if (g_picker_class_registered) {
+        if (UnregisterClassW(detail::kManualPickerClass, instance)) {
+            g_picker_class_registered = false;
+        } else {
+            success = false;
+        }
+    }
+    if (g_heatmap_class_registered) {
+        if (UnregisterClassW(kHeatmapClass, instance)) {
+            g_heatmap_class_registered = false;
+        } else {
+            success = false;
+        }
+    }
+    if (g_panel_class_registered) {
+        if (UnregisterClassW(kPanelClass, instance)) {
+            g_panel_class_registered = false;
+        } else {
+            success = false;
+        }
+    }
+    return success;
+}
+
 void register_classes() {
-    static bool registered = false;
-    if (registered) {
+    if (g_panel_class_registered && g_heatmap_class_registered &&
+        g_picker_class_registered) {
         return;
     }
     const UINT dpi = system_dpi();
@@ -4188,50 +4412,72 @@ void register_classes() {
     panel.style = CS_HREDRAW | CS_VREDRAW;
     panel.lpfnWndProc = &ControlPanel::window_proc;
     panel.hInstance = GetModuleHandleW(nullptr);
-    panel.hIcon = load_shared_app_icon(32, dpi);
-    panel.hIconSm = load_shared_app_icon(16, dpi);
+    panel.hIcon = load_app_icon(32, dpi);
+    panel.hIconSm = load_app_icon(16, dpi);
     panel.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     panel.hbrBackground = nullptr;
     panel.lpszClassName = kPanelClass;
-    if (RegisterClassExW(&panel) == 0 &&
-        GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+    const ATOM panel_atom = RegisterClassExW(&panel);
+    if (panel_atom == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         throw PlatformError(
             "the DuckEggs window class could not register");
     }
+    g_panel_class_registered = true;
 
     WNDCLASSEXW maps{};
     maps.cbSize = sizeof(maps);
     maps.style = CS_HREDRAW | CS_VREDRAW;
     maps.lpfnWndProc = &HeatmapWindow::window_proc;
     maps.hInstance = GetModuleHandleW(nullptr);
-    maps.hIcon = load_shared_app_icon(32, dpi);
-    maps.hIconSm = load_shared_app_icon(16, dpi);
+    maps.hIcon = load_app_icon(32, dpi);
+    maps.hIconSm = load_app_icon(16, dpi);
     maps.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     maps.hbrBackground = nullptr;
     maps.lpszClassName = kHeatmapClass;
-    if (RegisterClassExW(&maps) == 0 &&
-        GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+    const ATOM maps_atom = RegisterClassExW(&maps);
+    if (maps_atom == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         throw PlatformError(
             "the Learning maps window class could not register");
     }
+    g_heatmap_class_registered = true;
 
     WNDCLASSEXW chooser{};
     chooser.cbSize = sizeof(chooser);
     chooser.style = CS_HREDRAW | CS_VREDRAW;
     chooser.lpfnWndProc = &ManualPickerWindow::window_proc;
     chooser.hInstance = GetModuleHandleW(nullptr);
-    chooser.hIcon = load_shared_app_icon(32, dpi);
-    chooser.hIconSm = load_shared_app_icon(16, dpi);
+    chooser.hIcon = load_app_icon(32, dpi);
+    chooser.hIconSm = load_app_icon(16, dpi);
     chooser.hCursor = LoadCursorW(nullptr, IDC_CROSS);
     chooser.hbrBackground = nullptr;
     chooser.lpszClassName = detail::kManualPickerClass;
-    if (RegisterClassExW(&chooser) == 0 &&
+    const ATOM chooser_atom = RegisterClassExW(&chooser);
+    if (chooser_atom == 0 &&
         GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         throw PlatformError(
             "the manual window chooser class could not register");
     }
-    registered = true;
+    g_picker_class_registered = true;
 }
+
+class UiIconResources {
+public:
+    UiIconResources() {
+        g_app_icon_cache = &icons_;
+    }
+
+    ~UiIconResources() {
+        if (!unregister_classes()) {
+            // Keep icons valid if a class could not be unregistered.
+            icons_.abandon_handles();
+        }
+        g_app_icon_cache = nullptr;
+    }
+
+private:
+    ui::detail::AppIconCache icons_{
+        GetModuleHandleW(nullptr), ui::brand::kAppIconResourceId};
+};
 
 class GdiplusSession {
 public:
@@ -4261,6 +4507,7 @@ private:
 
 bool run_platform_ui(AdaptiveApplication& application) {
     enable_per_monitor_dpi();
+    UiIconResources icon_resources;
     GdiplusSession gdiplus;
     if (!gdiplus.started()) {
         return false;

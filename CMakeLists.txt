@@ -154,7 +154,7 @@ if(WIN32)
             _WIN32_WINNT=0x0A00)
     target_link_libraries(
         schiva_ui PRIVATE
-            user32 gdi32 gdiplus comctl32 shell32 dwmapi uxtheme ole32)
+            user32 gdi32 gdiplus comctl32 shell32 dwmapi uxtheme ole32 advapi32)
 endif()
 
 add_executable(DuckEggs src/main.cpp)
@@ -175,6 +175,21 @@ if(SCHIVA_BUILD_TESTS)
         target_link_libraries(
             test_platform PRIVATE schiva_ui schiva_runtime schiva_platform)
         add_test(NAME test_platform COMMAND test_platform)
+    endif()
+
+    if(WIN32)
+        add_executable(
+            test_win32_icons
+            tests/test_win32_icons.cpp
+            resources/DuckEggs.rc)
+        target_include_directories(
+            test_win32_icons PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+        target_compile_definitions(
+            test_win32_icons PRIVATE
+                NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+        target_link_libraries(test_win32_icons PRIVATE user32 gdi32)
+        add_test(NAME test_win32_icons COMMAND test_win32_icons)
     endif()
 
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_core.cpp")
