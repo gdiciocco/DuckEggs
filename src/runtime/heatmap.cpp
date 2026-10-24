@@ -13,24 +13,24 @@ namespace {
 constexpr std::array<LayerSpec, 3> kLayers{{
     {
         "activity",
-        "Uso delle aree",
-        "Piu alto = area piu usata, quindi da evitare per il PiP. "
-        "E attivita osservata, non uno screenshot.",
-        "#a93226",
+        "Activity",
+        "Warmer cells are used more often, so they are less suitable "
+        "for Picture-in-Picture. This is observed activity, not an image.",
+        "#f08a65",
     },
     {
         "manual",
-        "Preferenze manuali",
-        "Piu alto = posizione scelta o corretta esplicitamente "
-        "dall'utente. Non e un premio LinUCB.",
-        "#315b9a",
+        "Manual preference",
+        "Warmer cells reflect placements you chose or corrected directly. "
+        "This is separate from the shared model reward.",
+        "#73a7ff",
     },
     {
         "placement",
-        "Posizionamento stimato",
-        "Piu alto = destinazione relativamente migliore per l'intero PiP. "
-        "E una stima relativa, non una certezza o probabilita.",
-        "#2d7a58",
+        "Placement",
+        "Warmer cells are relatively better destinations for the complete "
+        "PiP footprint. This is an estimate, not a probability.",
+        "#73dcc5",
     },
 }};
 
@@ -175,7 +175,7 @@ std::string layer_color(
     if (!normalized.has_value() || !known || spec == nullptr) {
         return std::string(kUnknownColor);
     }
-    const auto low = rgb("#f8f7f3");
+    const auto low = rgb("#26313d");
     const auto high = rgb(spec->high_color);
     std::array<int, 3> channels{};
     for (std::size_t index = 0; index < channels.size(); ++index) {
@@ -301,15 +301,15 @@ std::vector<ProfileChoice> profile_choices(const Json& snapshot) {
             continue;
         }
         const std::string app = profile.contains("app_id")
-            ? string_value(profile["app_id"], "app sconosciuta")
-            : "app sconosciuta";
+            ? string_value(profile["app_id"], "Unknown app")
+            : "Unknown app";
         const std::string layout = profile.contains("layout_bin")
-            ? string_value(profile["layout_bin"], "layout sconosciuto")
-            : "layout sconosciuto";
+            ? string_value(profile["layout_bin"], "Unknown layout")
+            : "Unknown layout";
         choices.push_back(ProfileChoice{
             *key,
             app + " \u00b7 " + layout + " \u00b7 " +
-                (*key == active ? "attivo" : "appreso")});
+                (*key == active ? "Active" : "Learned")});
     }
     return choices;
 }
@@ -385,6 +385,8 @@ std::string learning_summary(const Json& snapshot) {
     if (!decision_count.has_value() && snapshot.contains("decision_count")) {
         decision_count = snapshot["decision_count"];
     }
+    // Kept for compatibility with the frozen platform test surface. DuckEggs
+    // renderers format this summary in English themselves.
     return "Decisioni profilo: " +
            display_count(decision_count.value_or(Json(nullptr))) +
            " \u00b7 apprendimenti globali: " +
@@ -400,9 +402,9 @@ std::optional<std::string> projection_notice(const Json& snapshot) {
         !snapshot["projection"].get<bool>()) {
         return std::nullopt;
     }
-    return "Proiezione non live \u2014 assunzioni: app inattiva estesa "
-           "all'intera area di lavoro; modello globale condiviso; geometria "
-           "e PiP correnti; nessuna vista dal vivo.";
+    return "Projected maps \u2014 the application is inactive, so its activity "
+           "is extended to the whole workspace. The shared model and current "
+           "geometry are used, but this is not live data.";
 }
 
 std::string profile_status_details(const Json& snapshot) {
@@ -419,38 +421,38 @@ std::string profile_status_details(const Json& snapshot) {
             if (!key.has_value() || *key != *selected) {
                 continue;
             }
-            return "Profilo: " +
+            return "Profile: " +
                    string_value(
                        profile.contains("app_id")
                            ? profile["app_id"]
                            : Json(nullptr),
-                       "app sconosciuta") +
+                       "Unknown app") +
                    " \u00b7 " +
                    string_value(
                        profile.contains("role")
                            ? profile["role"]
                            : Json(nullptr),
-                       "finestra sconosciuta") +
+                       "Unknown window") +
                    " \u00b7 " +
                    string_value(
                        profile.contains("layout_bin")
                            ? profile["layout_bin"]
                            : Json(nullptr),
-                       "layout sconosciuto") +
-                   " \u00b7 chiave: " + *selected + ".";
+                       "Unknown layout") +
+                   " \u00b7 key: " + *selected + ".";
         }
     }
     if (selected.has_value() && !selected->empty()) {
-        return "Profilo: chiave " + *selected +
-               ", dettagli non disponibili.";
+        return "Profile: key " + *selected +
+               ", details are not available.";
     }
-    return "Profilo selezionato non disponibile.";
+    return "The selected profile is not available.";
 }
 
 std::optional<std::string> cold_start_message(const Json& snapshot) {
     if (profile_choices(snapshot).empty()) {
-        return "Nessun profilo appreso: usa Schiva per qualche minuto e "
-               "riapri questa vista. Nessun dato verra creato da qui.";
+        return "No learning maps are available yet. Keep DuckEggs running "
+               "while you use Picture-in-Picture, then reopen this view.";
     }
     std::int64_t learning_count = 0;
     if (snapshot.contains("learning_count")) {
@@ -458,8 +460,8 @@ std::optional<std::string> cold_start_message(const Json& snapshot) {
             integer_value(snapshot["learning_count"]).value_or(0);
     }
     if (learning_count <= 0) {
-        return "Avvio a freddo: il modello non ha ancora esempi. Le celle "
-               "non apprese restano grigie e non indicano aree da evitare.";
+        return "Cold start: the model has no examples yet. Gray cells have "
+               "not been learned and do not indicate areas to avoid.";
     }
     if (snapshot.contains("layers") && snapshot["layers"].is_object()) {
         for (const auto& key : layer_keys()) {
@@ -474,8 +476,7 @@ std::optional<std::string> cold_start_message(const Json& snapshot) {
             }
         }
     }
-    return "Dati ancora insufficienti: le aree grigie non sono state "
-           "osservate o non sono disponibili in modo sicuro.";
+    return "Not enough data yet: gray areas were not observed reliably.";
 }
 
 std::string bounded_detail(const Json& value) {

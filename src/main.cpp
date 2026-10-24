@@ -1,46 +1,57 @@
 #include "schiva/platform.hpp"
 #include "schiva/runtime.hpp"
 
+#include <array>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 namespace {
 
-constexpr std::string_view kHelp = R"(Schiva Adattivo C++ - adaptive placement of Chrome's native PiP window
+constexpr std::string_view kHelp = R"(DuckEggs - adaptive placement for Chrome Picture-in-Picture
 
-Windows is the only native backend. Linux and macOS provide source-level
-help, status and portable tests, plus an explicit unsupported-native error.
+DuckEggs learns where a Picture-in-Picture window fits your work and moves it
+only when the shared adaptive model identifies a safe destination.
+
+Windows is the native backend. Linux and macOS builds include the portable
+core, command-line actions and tests, but report unsupported native access.
 
 Usage:
-  Schiva-Adattivo-Cpp.exe [OPTIONS]
+  DuckEggs.exe [OPTIONS]
 
 Actions:
-  --help                  Show this help without starting the backend
-  --version               Show the version without starting the backend
-  --status                Read the last local status JSON
-  --stop                  Signal a running C++ instance (never Python)
-  --probe                 Inspect capabilities without capture or data creation
-  --import-python PATH    Backup a Python schema-1 database into an empty
-                          --data-dir; never modifies the source
+  --help                  Show this help without starting DuckEggs
+  --version               Show the version without starting DuckEggs
+  --status                Read the last local status snapshot
+  --stop                  Ask a running DuckEggs instance to stop
+  --probe                 Check native capabilities without capture
+  --import-python PATH    Copy a compatible Python backup into an empty
+                          directory selected with --data-dir
 
 Runtime:
   --start-paused          Start paused (the default)
-  --resume                Explicitly start active; fails closed while the
-                          Python Schiva named mutex is alive
-  --observe-only          Learn but never move the PiP window
-  --no-visual             Disable desktop sampling
-  --no-gui                Run without the native control panel
-  --duration SECONDS      Stop after a finite positive duration
-  --data-dir PATH         Override the isolated C++ local-data directory
+  --resume                Start active; refuses to run alongside Schiva
+  --observe-only          Learn without moving the PiP window
+  --no-visual             Disable visual learning
+  --no-gui                Run without the DuckEggs window
+  --duration SECONDS      Exit after a finite positive duration
+  --data-dir PATH         Use a different local data directory
 
 There is no --mode option. Default data directory:
-  Windows  %LOCALAPPDATA%\SchivaAdaptiveCpp
-  Linux    $XDG_STATE_HOME/schiva-cpp or ~/.local/state/schiva-cpp
-  macOS    ~/Library/Application Support/SchivaCpp
+  Windows  %LOCALAPPDATA%\DuckEggs
+  Linux    $XDG_DATA_HOME/duckeggs or ~/.local/share/duckeggs
+  macOS    ~/Library/Application Support/DuckEggs
 )";
 
 struct Arguments {
@@ -59,37 +70,41 @@ struct Arguments {
     std::optional<std::filesystem::path> import_python;
 };
 
-std::optional<std::string> option_value(
-    int& index,
-    int argc,
-    char** argv,
-    std::string_view option) {
-    const std::string_view argument(argv[index]);
-    const std::string prefix = std::string(option) + "=";
-    if (argument.substr(0, prefix.size()) == prefix) {
-        return std::string(argument.substr(prefix.size()));
-    }
-    if (argument == option) {
-        if (index + 1 >= argc) {
-            return std::nullopt;
-        }
-        return std::string(argv[++index]);
-    }
-    return std::nullopt;
-}
-
 bool starts_with(std::string_view value, std::string_view prefix) {
     return value.size() >= prefix.size() &&
            value.substr(0, prefix.size()) == prefix;
 }
 
+bool is_option_with_value(std::string_view option, std::string_view name) {
+    return option == name ||
+           (starts_with(option, name) && option.size() > name.size() &&
+            option[name.size()] == '=');
+}
+
+std::optional<std::string> option_value(
+    std::size_t& index,
+    const std::vector<std::string>& args,
+    std::string_view option) {
+    const std::string_view argument(args[index]);
+    const std::string prefix = std::string(option) + "=";
+    if (starts_with(argument, prefix)) {
+        return std::string(argument.substr(prefix.size()));
+    }
+    if (argument == option) {
+        if (index + 1 >= args.size()) {
+            return std::nullopt;
+        }
+        return args[++index];
+    }
+    return std::nullopt;
+}
+
 bool parse_arguments(
-    int argc,
-    char** argv,
+    const std::vector<std::string>& args,
     Arguments& arguments,
     std::string& error) {
-    for (int index = 1; index < argc; ++index) {
-        const std::string_view option(argv[index]);
+    for (std::size_t index = 1; index < args.size(); ++index) {
+        const std::string_view option(args[index]);
         if (option == "--help" || option == "-h") {
             arguments.help = true;
         } else if (option == "--version") {
@@ -110,10 +125,9 @@ bool parse_arguments(
             arguments.no_visual = true;
         } else if (option == "--no-gui") {
             arguments.no_gui = true;
-        } else if (option == "--duration" ||
-                   starts_with(option, "--duration=")) {
-            const auto value = option_value(
-                index, argc, argv, "--duration");
+        } else if (is_option_with_value(option, "--duration")) {
+            const auto value =
+                option_value(index, args, "--duration");
             if (!value.has_value() || value->empty()) {
                 error = "--duration requires a value";
                 return false;
@@ -127,32 +141,39 @@ bool parse_arguments(
                 }
                 arguments.duration = duration;
             } catch (...) {
-                error =
-                    "--duration must be a finite positive number";
+                error = "--duration must be a finite positive number";
                 return false;
             }
-        } else if (option == "--data-dir" ||
-                   starts_with(option, "--data-dir=")) {
-            const auto value = option_value(
-                index, argc, argv, "--data-dir");
+        } else if (is_option_with_value(option, "--data-dir")) {
+            const auto value =
+                option_value(index, args, "--data-dir");
             if (!value.has_value() || value->empty()) {
                 error = "--data-dir requires a path";
                 return false;
             }
-            arguments.data_dir = schiva::path_from_utf8(*value);
-        } else if (option == "--import-python" ||
-                   starts_with(option, "--import-python=")) {
-            const auto value = option_value(
-                index, argc, argv, "--import-python");
+            try {
+                arguments.data_dir = schiva::path_from_utf8(*value);
+            } catch (const std::exception& exception) {
+                error = schiva::clean_error(exception.what());
+                return false;
+            }
+        } else if (is_option_with_value(option, "--import-python")) {
+            const auto value =
+                option_value(index, args, "--import-python");
             if (!value.has_value() || value->empty()) {
                 error = "--import-python requires a database path";
                 return false;
             }
-            arguments.import_python = schiva::path_from_utf8(*value);
-        } else if (option == "--mode" ||
-                   starts_with(option, "--mode=")) {
+            try {
+                arguments.import_python =
+                    schiva::path_from_utf8(*value);
+            } catch (const std::exception& exception) {
+                error = schiva::clean_error(exception.what());
+                return false;
+            }
+        } else if (is_option_with_value(option, "--mode")) {
             error =
-                "--mode is not supported; Schiva has one adaptive mode";
+                "--mode is not supported; DuckEggs has one adaptive mode";
             return false;
         } else {
             error = "unknown option: " + std::string(option);
@@ -174,24 +195,21 @@ bool parse_arguments(
     }
     if (arguments.import_python.has_value() &&
         !arguments.data_dir.has_value()) {
-        error =
-            "--import-python requires an explicit empty --data-dir";
+        error = "--import-python requires an explicit empty --data-dir";
         return false;
     }
     return true;
 }
 
 int fail(const std::string& message) {
-    std::cerr << "Schiva Adattivo C++: " << message << '\n';
+    std::cerr << "DuckEggs: " << message << '\n';
     return 2;
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
+int run(const std::vector<std::string>& args) {
     Arguments arguments;
     std::string parse_error;
-    if (!parse_arguments(argc, argv, arguments, parse_error)) {
+    if (!parse_arguments(args, arguments, parse_error)) {
         return fail(parse_error);
     }
     if (arguments.help) {
@@ -199,7 +217,7 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (arguments.version) {
-        std::cout << schiva::kVersion << '\n';
+        std::cout << "DuckEggs " << schiva::kVersion << '\n';
         return 0;
     }
 
@@ -220,13 +238,10 @@ int main(int argc, char** argv) {
     if (arguments.stop) {
         try {
             if (schiva::request_stop()) {
-                std::cout
-                    << "Schiva Adattivo C++: stop request sent.\n";
+                std::cout << "DuckEggs: stop request sent.\n";
                 return 0;
             }
-            std::cerr
-                << "Schiva Adattivo C++: no running C++ instance "
-                   "answered.\n";
+            std::cerr << "DuckEggs: no running instance answered.\n";
             return 1;
         } catch (const schiva::UnsupportedPlatformError& exception) {
             return fail(schiva::clean_error(exception.what()));
@@ -289,3 +304,133 @@ int main(int argc, char** argv) {
         return fail(schiva::clean_error(exception.what()));
     }
 }
+
+}  // namespace
+
+#ifdef _WIN32
+
+namespace {
+
+std::string utf8_from_wide(std::wstring_view value) {
+    if (value.empty()) {
+        return {};
+    }
+    const int size = WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        value.data(),
+        static_cast<int>(value.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (size <= 0) {
+        throw std::runtime_error(
+            "the command line could not be decoded as Unicode");
+    }
+    std::string result(static_cast<std::size_t>(size), '\0');
+    if (WideCharToMultiByte(
+            CP_UTF8,
+            WC_ERR_INVALID_CHARS,
+            value.data(),
+            static_cast<int>(value.size()),
+            result.data(),
+            size,
+            nullptr,
+            nullptr) <= 0) {
+        throw std::runtime_error(
+            "the command line could not be decoded as Unicode");
+    }
+    return result;
+}
+
+bool needs_console(const std::vector<std::string>& args) {
+    if (args.size() <= 1) {
+        return false;
+    }
+    for (std::size_t index = 1; index < args.size(); ++index) {
+        const std::string_view option(args[index]);
+        if (option == "--help" || option == "-h" ||
+            option == "--version" || option == "--status" ||
+            option == "--stop" || option == "--probe" ||
+            option == "--no-gui" ||
+            is_option_with_value(option, "--import-python") ||
+            is_option_with_value(option, "--mode")) {
+            return true;
+        }
+        const bool gui_option =
+            option == "--start-paused" || option == "--resume" ||
+            option == "--observe-only" || option == "--no-visual" ||
+            is_option_with_value(option, "--duration") ||
+            is_option_with_value(option, "--data-dir");
+        if (!gui_option) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void attach_console_for_output() {
+    const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    const bool output_available =
+        output != nullptr && output != INVALID_HANDLE_VALUE &&
+        GetFileType(output) != FILE_TYPE_UNKNOWN;
+    if (output_available) {
+        return;
+    }
+    if (!AttachConsole(ATTACH_PARENT_PROCESS)) {
+        return;
+    }
+    SetConsoleOutputCP(CP_UTF8);
+    FILE* stream = nullptr;
+    if (freopen_s(&stream, "CONOUT$", "w", stdout) != 0) {
+        std::cout.clear();
+    }
+    if (freopen_s(&stream, "CONOUT$", "w", stderr) != 0) {
+        std::cerr.clear();
+    }
+}
+
+}  // namespace
+
+int WINAPI wWinMain(
+    HINSTANCE,
+    HINSTANCE,
+    PWSTR,
+    int) {
+    int wide_count = 0;
+    PWSTR* wide_arguments =
+        CommandLineToArgvW(GetCommandLineW(), &wide_count);
+    if (wide_arguments == nullptr) {
+        return fail("the command line could not be read");
+    }
+    std::vector<std::string> args;
+    args.reserve(static_cast<std::size_t>(wide_count));
+    try {
+        for (int index = 0; index < wide_count; ++index) {
+            args.push_back(utf8_from_wide(wide_arguments[index]));
+        }
+    } catch (const std::exception& exception) {
+        LocalFree(wide_arguments);
+        return fail(exception.what());
+    }
+    LocalFree(wide_arguments);
+
+    if (needs_console(args)) {
+        attach_console_for_output();
+    }
+    return run(args);
+}
+
+#else
+
+int main(int argc, char** argv) {
+    std::vector<std::string> args;
+    args.reserve(static_cast<std::size_t>(argc));
+    for (int index = 0; index < argc; ++index) {
+        args.emplace_back(argv[index] == nullptr ? "" : argv[index]);
+    }
+    return run(args);
+}
+
+#endif

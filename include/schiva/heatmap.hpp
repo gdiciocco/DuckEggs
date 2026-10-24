@@ -12,7 +12,7 @@ namespace schiva::heatmap {
 
 constexpr std::size_t kMaxGridDimension = 128;
 constexpr std::size_t kMaxDetailChars = 260;
-constexpr auto kUnknownColor = "#d4d7da";
+constexpr auto kUnknownColor = "#394452";
 
 struct LayerSpec {
     std::string_view key;

@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(
-    SchivaAdattivoCpp
+    DuckEggs
     VERSION 0.4.0
-    DESCRIPTION "Native C++20 adaptive Chrome PiP placement"
+    DESCRIPTION "DuckEggs adaptive Chrome PiP placement"
     LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
@@ -113,6 +113,7 @@ if(WIN32)
             _UNICODE
             _WIN32_WINNT=0x0A00)
     target_link_libraries(schiva_platform PRIVATE shcore)
+    target_link_libraries(schiva_platform PRIVATE normaliz)
 else()
     target_sources(schiva_platform PRIVATE src/platform/unsupported.cpp)
 endif()
@@ -140,17 +141,23 @@ target_link_libraries(schiva_ui PUBLIC schiva_runtime)
 if(WIN32)
     target_compile_definitions(
         schiva_ui PRIVATE
-            NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+            NOMINMAX
+            WIN32_LEAN_AND_MEAN
+            UNICODE
+            _UNICODE
+            _WIN32_WINNT=0x0A00)
     target_link_libraries(
-        schiva_ui PRIVATE user32 gdi32 comctl32 shell32)
+        schiva_ui PRIVATE
+            user32 gdi32 gdiplus comctl32 shell32 dwmapi uxtheme)
 endif()
 
-add_executable(Schiva-Adattivo-Cpp src/main.cpp)
+add_executable(DuckEggs src/main.cpp)
 target_link_libraries(
-    Schiva-Adattivo-Cpp PRIVATE schiva_ui schiva_runtime schiva_platform)
+    DuckEggs PRIVATE schiva_ui schiva_runtime schiva_platform)
 set_target_properties(
-    Schiva-Adattivo-Cpp PROPERTIES
-    OUTPUT_NAME "Schiva-Adattivo-Cpp")
+    DuckEggs PROPERTIES
+    OUTPUT_NAME "DuckEggs"
+    WIN32_EXECUTABLE TRUE)
 if(SCHIVA_BUILD_TESTS)
     include(CTest)
 
@@ -170,27 +177,61 @@ if(SCHIVA_BUILD_TESTS)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/parity_runner.cpp")
         add_executable(parity_runner tests/parity_runner.cpp)
         target_link_libraries(parity_runner PRIVATE schiva_core)
-        add_test(NAME parity_runner COMMAND parity_runner)
+        find_package(Python3 COMPONENTS Interpreter QUIET)
+        if(Python3_Interpreter_FOUND AND
+           EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_parity.py" AND
+           EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/core-parity.json")
+            add_test(
+                NAME core_parity
+                COMMAND
+                    "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_parity.py"
+                    --runner "$<TARGET_FILE:parity_runner>"
+                    --fixture
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/core-parity.json")
+        endif()
+    endif()
+
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/benchmark_runtime.cpp")
+        add_executable(
+            benchmark_runtime tests/benchmark_runtime.cpp)
+        target_link_libraries(
+            benchmark_runtime PRIVATE
+                schiva_ui schiva_runtime schiva_platform)
+    endif()
+
+    if(NOT WIN32)
+        add_test(NAME unsupported_native_probe COMMAND DuckEggs --probe)
+        set_tests_properties(
+            unsupported_native_probe PROPERTIES WILL_FAIL TRUE)
     endif()
 endif()
 
-install(TARGETS Schiva-Adattivo-Cpp RUNTIME DESTINATION .)
+install(TARGETS DuckEggs RUNTIME DESTINATION .)
 install(
     FILES
         README.md
         CONTRIBUTING.md
         LICENSE
         THIRD_PARTY.md
-        Avvia-Schiva-Adattivo-Cpp.cmd
-        Ferma-Schiva-Adattivo-Cpp.cmd
+        Start-DuckEggs.cmd
+        Stop-DuckEggs.cmd
     DESTINATION .)
+install(
+    FILES
+        vendor/PROVENANCE.txt
+        vendor/sqlite/LICENSE.SQLite.txt
+        vendor/nlohmann/LICENSE.nlohmann-json.MIT
+    DESTINATION licenses)
 
-set(CPACK_PACKAGE_NAME "Schiva-Adattivo-Cpp")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-cpp.1")
+set(CPACK_PACKAGE_NAME "DuckEggs")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-preview.1")
 set(CPACK_PACKAGE_FILE_NAME
-    "Schiva-Adattivo-Cpp-${PROJECT_VERSION}-cpp.1-windows-x64")
+    "DuckEggs-${PROJECT_VERSION}-preview.1-windows-x64")
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_SOURCE_GENERATOR "ZIP")
+set(CPACK_SOURCE_PACKAGE_FILE_NAME
+    "DuckEggs-${PROJECT_VERSION}-preview.1-source")
 set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
 set(
     CPACK_SOURCE_IGNORE_FILES

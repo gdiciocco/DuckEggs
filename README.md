@@ -1,130 +1,135 @@
-# Schiva Adattivo C++ 0.4.0-cpp.1
+# DuckEggs 0.4.0-preview.1
 
-Schiva Adattivo C++ is a native C++20 port of Schiva adaptive 0.3.0. It has
-one adaptive mode and moves Chrome's native Picture-in-Picture window only when
-the frozen shared-learning core proposes a safe, time-based step.
+DuckEggs is a native C++20 port of the Schiva adaptive Picture-in-Picture
+experience. It learns where Chrome's native PiP window fits your work and moves
+it only when the shared adaptive model finds a safe destination.
 
-Windows is the only implemented native backend. The portable core, command
-line help, status, import logic and tests can be built elsewhere, but Linux and
-macOS intentionally return an explicit unsupported-native error. This
-repository does not include a Linux or macOS desktop adapter.
+The product interface is entirely in English. Internal `schiva` namespaces and
+header paths remain frozen for compatibility with the ported core.
 
-The implementation uses native Win32 controls and GDI. It does not bundle or
-start Python, Qt, a browser, a web view, a server, a scripting runtime, an
-interpreter, or telemetry.
+Windows is the implemented native backend. Linux and macOS builds include the
+portable core, command-line actions and tests, but report an explicit
+unsupported-native error. DuckEggs does not bundle or start Python, Qt, a
+browser, a web view, a server, a scripting runtime, an interpreter or
+telemetry.
+
+## Interface
+
+The main DuckEggs window uses a dark neutral interface with teal accents,
+Segoe UI typography, resizable DPI-scaled cards and native keyboard controls.
+It starts paused and shows a clear Paused/Watching/Moving/No PiP status, Chrome
+PiP availability, learning updates, visual-signal state, and the primary
+Resume/Pause action. Learning maps and Exit are secondary actions.
+
+The Learning maps window is a read-only local viewer with:
+
+- An application/layout selector that preserves the selected profile while
+  snapshots refresh.
+- Activity, Manual preference and Placement layers.
+- A relative-value legend and gray unknown/unavailable cells.
+- Full-PiP footprint hover, plus foreground, current-PiP and recommendation
+  outlines.
+- Explicit cold-start and projected-map notices.
+
+The viewer requests a detached snapshot about once per second while open.
+Requests are deferred while DuckEggs is moving the PiP. Refreshes do not focus
+or activate the viewer.
 
 ## Safety model
 
-- Only a visible top-level `chrome.exe` window with class
-  `Chrome_WidgetWin_1` and the complete localized title `Picture in picture` or
-  `Immagine nell'immagine` is a candidate. Partial Chrome titles are rejected.
-- Exactly one candidate is required. Multiple PiP windows fail closed instead
-  of choosing arbitrarily.
-- Window identity includes HWND, process ID, process creation time, class,
-  executable basename and the exact title. A process-handle cache is reused
-  only when the current creation time still matches.
-- Movement starts only after a strict full-scan lease. The target is fully
-  revalidated at least every 200 ms, cheap identity checks run on every frame,
-  and current geometry, cursor and held-button state are checked immediately
-  before `SetWindowPos`.
-- The pointer must remain outside the PiP controls and the native motion
-  corridor. A destination must fit the destination monitor work area.
-- The implementation never activates, resizes, reorders or closes a user
-  window. It installs no keyboard hooks and does not log key contents.
-- The default startup is PAUSED. `--resume` is the only explicit active start.
-  It refuses to start if Python's
-  `Local\SchivaAdaptive.Instance.v1` named mutex exists. Every active tick and
-  every move checks that mutex again. It never signals or stops Python.
-- The C++ program uses its own
-  `Local\SchivaAdaptiveCpp.Instance.v1` mutex and
-  `Local\SchivaAdaptiveCpp.Stop.v1` event. `--stop` cannot reach Python.
+- Only a visible, top-level `chrome.exe` window with class
+  `Chrome_WidgetWin_1` and the complete localized PiP title is a candidate.
+  Partial Chrome titles fail closed.
+- Exactly one candidate is required. Multiple PiP windows are not chosen
+  arbitrarily.
+- Window identity includes the handle, process ID, process creation time,
+  class, executable basename and exact title. Full identity validation is
+  repeated throughout a movement.
+- A movement target is revalidated for geometry, cursor and held buttons
+  immediately before it is applied. DuckEggs never activates, resizes,
+  reorders or closes a user window.
+- The pointer must remain outside PiP controls and the native motion corridor.
+  The destination must fit the monitor work area.
+- DuckEggs installs no keyboard hooks and does not log key contents.
+- Startup is paused. `--resume` is the only explicit active start.
+- Resume fails safely while Python's original
+  `Local\SchivaAdaptive.Instance.v1` mutex is active. DuckEggs never signals,
+  stops or modifies the Python application or its database.
+- DuckEggs uses the isolated `Local\DuckEggs.Instance.v1` mutex and
+  `Local\DuckEggs.Stop.v1` event. `--stop` cannot reach Python.
 
-Capture is a separate bounded worker with latest-request and latest-result
-mailboxes. Sampling is capped at 2 Hz, remains a single 64 by 36 grayscale
-frame in memory, and is delivered at most once. Pause, motion, held input,
-PiP proximity, context changes and geometry changes invalidate stale frames.
-No pixels are persisted. Capture failure leaves the application usable and is
-reported in status.
+Capture is a bounded one-worker latest-request/latest-result pipeline. Sampling
+is capped at 2 Hz and uses one in-memory 64 by 36 grayscale frame at a time.
+Stale frames are invalidated after pause, input, motion, context or geometry
+changes. Pixels and cursor traces are not persisted.
 
 ## Adaptive runtime
 
-The worker thread exclusively owns native observation, the frozen core, SQLite,
-movement and heatmap insight queries. The scheduler uses absolute deadlines at
-a target 120 Hz during committed motion, 60 Hz while idle and 15 Hz while
-paused. Missed deadlines are skipped, and controls are checked during bounded
-12 ms waits. There is no busy loop and no process-wide timer-resolution change.
+The worker thread exclusively owns native observation, the frozen core,
+SQLite, movement and insight queries. The UI only receives detached JSON
+snapshots. The scheduler targets 120 Hz during committed motion, 60 Hz while
+idle and 15 Hz while paused with missed deadlines skipped. It does not change
+the system timer resolution or use a busy loop.
 
-The GUI receives deeply detached JSON snapshots. It never opens SQLite and
-never calls the controller. A heatmap request is coalesced to the newest
-selected profile. While the read-only viewer is open it requests one refresh
-about every second; requests are deferred during a moving step.
-
-The frozen core owns the shared 12-feature model, normalized 24 by 14 maps,
-decay, delayed measured/censored feedback, full-footprint scoring, the 65%
-vacated-area goal with maximum-safe fallback, manual/helper interaction,
-hold/pause behavior and path planning. Platform code supplies observations and
-applies only the single safe target returned by the core.
-
-## Learning viewer
-
-The Win32/GDI viewer provides the same three semantic layers as Python:
-
-- **Uso delle aree**: observed activity. Higher means the area is more used and
-  therefore less suitable for PiP.
-- **Preferenze manuali**: explicit user choices/corrections. This is separate
-  from LinUCB reward.
-- **Posizionamento stimato**: relative full-footprint placement estimate. It is
-  not a probability or certainty.
-
-Unknown, invalid, unsafe and unlearned cells share a neutral gray. Hovering
-reports a cell's value; the placement layer also draws the complete PiP
-footprint. Foreground, current PiP and recommendation outlines are shown when
-the core supplies them. Projection and cold-start notices are explicit. The
-selector preserves an explicit profile choice while data refreshes.
+The frozen core owns the shared 12-feature model, 24 by 14 activity/manual
+maps, decay, delayed measured/censored feedback, full-footprint scoring, the
+65% vacated-area goal with a maximum-safe fallback, interaction holds, pause
+behavior and trajectory planning. Native code supplies observations and
+applies only the safe target returned by the core.
 
 ## Command line
 
+The Windows executable is a GUI-subsystem application, so opening DuckEggs
+normally does not create an unwanted console. CLI actions attach to an existing
+terminal only when needed; redirected stdout and stderr remain available.
+Windows command-line arguments are read through the Unicode command line and
+converted safely to UTF-8 only at the CLI parsing boundary.
+
 ```text
-Schiva-Adattivo-Cpp.exe --help
-Schiva-Adattivo-Cpp.exe --version
-Schiva-Adattivo-Cpp.exe --probe
-Schiva-Adattivo-Cpp.exe --status [--data-dir PATH]
-Schiva-Adattivo-Cpp.exe --resume
-Schiva-Adattivo-Cpp.exe --start-paused --no-visual
-Schiva-Adattivo-Cpp.exe --observe-only --no-gui --duration 10
-Schiva-Adattivo-Cpp.exe --stop
+DuckEggs.exe --help
+DuckEggs.exe --version
+DuckEggs.exe --probe
+DuckEggs.exe --status [--data-dir PATH]
+DuckEggs.exe --resume
+DuckEggs.exe --start-paused --no-visual
+DuckEggs.exe --observe-only --no-gui --duration 10
+DuckEggs.exe --stop
 ```
 
-`--help`, `--version`, `--status`, `--probe` and `--import-python` exit instead
-of activating the runtime. `--probe` performs no capture and creates no data.
-There is intentionally no `--mode` option.
+`--help`, `--version`, `--status`, `--probe` and `--import-python` exit without
+starting the runtime. `--probe` performs no capture and creates no data. There
+is intentionally no `--mode`.
 
 `--start-paused` and `--resume` are mutually exclusive. The default is paused,
 including `--no-gui` operation unless `--resume` is present.
 
 ## Python data import
 
-Importing is an explicit one-time copy:
+Import is an explicit one-time copy into a separate, empty DuckEggs data
+directory:
 
 ```text
-Schiva-Adattivo-Cpp.exe --import-python "C:\path\python-backup.sqlite3" --data-dir "C:\Temp\SchivaCppImport"
+DuckEggs.exe --import-python "C:\path\python-backup.sqlite3" --data-dir "C:\Temp\DuckEggsImport"
 ```
 
-The Python source is opened with SQLite `READONLY`, checked for schema version
-1, table compatibility and integrity, then copied with SQLite's backup API.
-The destination data directory must be explicitly supplied and empty. An
-existing C++ `learning.sqlite3` is never overwritten, and the source and
-destination cannot be the same file. Import exits before any native backend is
-created. The C++ program never writes into Python's data directory.
+The Python source is opened read-only, checked for schema version 1, required
+tables and integrity, then copied with SQLite's backup API. The destination
+must be explicitly supplied and empty. Existing DuckEggs learning data is
+never overwritten. Import exits before the native backend starts.
 
-Default isolated C++ data locations:
+Default isolated data locations:
 
-- Windows: `%LOCALAPPDATA%\SchivaAdaptiveCpp`
-- Linux: `$XDG_STATE_HOME/schiva-cpp` or `~/.local/state/schiva-cpp`
-- macOS: `~/Library/Application Support/SchivaCpp`
+- Windows: `%LOCALAPPDATA%\DuckEggs`
+- Linux: `$XDG_DATA_HOME/duckeggs` or `~/.local/share/duckeggs`
+- macOS: `~/Library/Application Support/DuckEggs`
 
-`status.json` contains aggregate state only. Window titles, URLs, cursor
-coordinates, raw frames and key contents are not persisted.
+`status.json` contains bounded aggregate state only. Window titles, URLs,
+cursor coordinates, raw frames and key contents are not persisted.
+
+## Launching
+
+- `Start-DuckEggs.cmd` opens the GUI paused.
+- `Stop-DuckEggs.cmd` sends a stop request to DuckEggs only.
 
 ## Build
 
@@ -137,9 +142,8 @@ vendor/sqlite/sqlite3.h
 vendor/nlohmann/json.hpp
 ```
 
-The build uses no `FetchContent`, package manager, network access, external
-toolchain download or runtime DLL dependency. MSVC x64 builds use the static
-`/MT` runtime.
+The build performs no network fetch and has no external runtime DLL
+dependency. MSVC x64 builds use the static `/MT` runtime for every target.
 
 ```bat
 cmake --preset windows-msvc
@@ -149,43 +153,42 @@ cd out\build\windows-msvc
 cpack -C Release
 ```
 
-The coordinator may point the build at an offline vendor location:
+The portable artifact is
+`DuckEggs-0.4.0-preview.1-windows-x64.zip`. It contains the executable,
+launchers, documentation, and the complete SQLite and nlohmann/json license
+and provenance files under `licenses/`.
 
-```bat
-cmake -S . -B out\vendor-build -G "Visual Studio 17 2022" -A x64 ^
-  -DSCHIVA_SQLITE_DIR=C:\offline\sqlite ^
-  -DSCHIVA_JSON_INCLUDE_DIR=C:\offline\json
-```
+Python is optional and is used only in development/CI to compare the parity
+runner's JSON with `tests/fixtures/core-parity.json`. It is not a DuckEggs
+runtime dependency.
 
-`CPACK_GENERATOR=ZIP` produces the portable Windows package. A separate source
-ZIP can be produced with `cpack --config CPackSourceConfig.cmake`.
+## Tests and verification boundary
 
-## Tests and verification status
+`test_platform` uses synthetic data for strict target identity, geometry,
+scheduling, status output, capture mailbox behavior, heatmap helpers and a
+SQLite backup round trip. It does not capture a real desktop or move a window.
+The core tests cover model, storage, controller and visual behavior.
+`core_parity` compares the complete C++ fixture output against the pinned
+Python reference when Python is available at configure time.
 
-`tests/test_platform.cpp` is portable and uses only synthetic data. It checks
-strict identity, geometry safety, deadline skipping, atomic status output,
-capture coalescing/invalidation/fresh-once behavior, heatmap semantics, and a
-real SQLite backup round trip against a source whose bytes must remain
-unchanged. It does not capture a real desktop or move a window.
+The Windows CI job builds and runs the release tests and produces the portable
+ZIP. The Linux CI job builds and runs the portable core and unsupported-native
+tests. Linux and macOS do not claim a desktop adapter.
 
-The C++ core and parity tests are discovered when `tests/test_core.cpp` and
-`tests/parity_runner.cpp` are present.
-
-Implementation review and portable source inspection are not hardware
-validation. MSVC compilation, CTest, executable dependency inspection,
-package hashing, and live Windows smoke tests remain coordinator tasks. No live
-browser-animation or real-PiP movement validation is claimed here.
+Source inspection and portable tests are not hardware validation. MSVC
+compilation, dependency inspection, package hashing, and actual desktop/PiP
+smoke tests remain coordinator verification steps. No live browser-animation
+or real window-movement validation is claimed here.
 
 ## Known limitations
 
 - Windows is the only native adapter.
-- Caret/UI Automation acquisition is unavailable; observations carry no caret.
-- GDI cannot observe occluded content, protected video or the area beneath the
-  PiP. A denied or black capture is treated as unavailable evidence.
+- Caret/UI Automation acquisition is not implemented.
+- GDI capture cannot inspect occluded content, protected video or the area
+  beneath the PiP. A denied or black capture is treated as unavailable
+  evidence.
 - Visual reading evidence is uncertain and is not proof that a person is
   reading.
-- The native UI, capture path and movement path are implemented from the Python
-  0.3.0 behavior but were not executed on a real desktop by the platform worker.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [THIRD_PARTY.md](THIRD_PARTY.md), and
 [LICENSE](LICENSE).

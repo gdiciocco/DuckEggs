@@ -87,32 +87,32 @@ std::filesystem::path default_data_dir() {
 #ifdef _WIN32
     const wchar_t* base = _wgetenv(L"LOCALAPPDATA");
     if (base != nullptr && *base != L'\0') {
-        return std::filesystem::path(base) / L"SchivaAdaptiveCpp";
+        return std::filesystem::path(base) / L"DuckEggs";
     }
     wchar_t temporary[MAX_PATH + 1]{};
     const DWORD length = GetTempPathW(MAX_PATH, temporary);
     return std::filesystem::path(std::wstring(temporary, length)) /
-           L"SchivaAdaptiveCpp";
+           L"DuckEggs";
 #elif defined(__APPLE__)
     const char* home = std::getenv("HOME");
     if (home != nullptr && *home != '\0') {
         return std::filesystem::path(home) / "Library" /
-               "Application Support" / "SchivaCpp";
+               "Application Support" / "DuckEggs";
     }
-    return std::filesystem::temp_directory_path() / "SchivaCpp";
+    return std::filesystem::temp_directory_path() / "DuckEggs";
 #elif defined(__linux__)
-    const char* state_home = std::getenv("XDG_STATE_HOME");
-    if (state_home != nullptr && *state_home != '\0') {
-        return std::filesystem::path(state_home) / "schiva-cpp";
+    const char* data_home = std::getenv("XDG_DATA_HOME");
+    if (data_home != nullptr && *data_home != '\0') {
+        return std::filesystem::path(data_home) / "duckeggs";
     }
     const char* home = std::getenv("HOME");
     if (home != nullptr && *home != '\0') {
-        return std::filesystem::path(home) / ".local" / "state" /
-               "schiva-cpp";
+        return std::filesystem::path(home) / ".local" / "share" /
+               "duckeggs";
     }
-    return std::filesystem::temp_directory_path() / "schiva-cpp";
+    return std::filesystem::temp_directory_path() / "duckeggs";
 #else
-    return std::filesystem::temp_directory_path() / "schiva-cpp";
+    return std::filesystem::temp_directory_path() / "duckeggs";
 #endif
 }
 

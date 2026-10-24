@@ -8,13 +8,23 @@
   "configurePresets": [
     {
       "name": "windows-msvc",
-      "displayName": "Windows MSVC x64",
+      "displayName": "DuckEggs Windows MSVC x64",
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/out/build/windows-msvc",
       "cacheVariables": {
         "SCHIVA_BUILD_TESTS": "ON",
         "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+      }
+    },
+    {
+      "name": "linux-core",
+      "displayName": "DuckEggs portable core (Linux)",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/out/build/linux-core",
+      "cacheVariables": {
+        "SCHIVA_BUILD_TESTS": "ON",
+        "CMAKE_BUILD_TYPE": "Release"
       }
     }
   ],
@@ -28,6 +38,10 @@
       "name": "windows-release",
       "configurePreset": "windows-msvc",
       "configuration": "Release"
+    },
+    {
+      "name": "linux-core",
+      "configurePreset": "linux-core"
     }
   ],
   "testPresets": [
@@ -43,6 +57,13 @@
       "name": "windows-release",
       "configurePreset": "windows-msvc",
       "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-core",
+      "configurePreset": "linux-core",
       "output": {
         "outputOnFailure": true
       }
