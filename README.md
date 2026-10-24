@@ -6,28 +6,29 @@
 
 <img src="resources/duckeggs-logo-256.png" alt="DuckEggs logo" width="256">
 
-**Keeps floating videos out of your way.**
+**Keeps floating windows out of your way.**
 
-DuckEggs is a small Windows app that moves a floating video window when it gets
-in the way of your work. Automatic discovery is intentionally limited to
-Chrome. For other browsers and applications, choose the floating window
-explicitly; that choice lasts only for the current session.
+DuckEggs is a small Windows app that moves a window when it gets in the way of
+your work. It was designed for browser picture-in-picture, and it can also keep
+any eligible top-level window you choose manually out of your busy work area.
 
-[Download DuckEggs 0.4.0-alpha.3 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.3/DuckEggs-0.4.0-alpha.3-windows-x64.zip)
+[Download DuckEggs 0.4.0-alpha.4 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.4/DuckEggs-0.4.0-alpha.4-windows-x64.zip)
 
 This is an early alpha. See the
-[v0.4.0-alpha.3 pre-release](https://github.com/gdiciocco/DuckEggs/releases/tag/v0.4.0-alpha.3)
+[v0.4.0-alpha.4 pre-release](https://github.com/gdiciocco/DuckEggs/releases/tag/v0.4.0-alpha.4)
 for release details.
 
 ## What it does
 
-- Moves the floating video smoothly instead of making it jump around.
-- Recognizes Chrome's picture-in-picture window when Chrome is using another
-  language.
-- Lets you choose a visible window from another browser or application when
-  you want to use manual mode.
+- Moves a floating or utility window smoothly instead of making it jump around.
+- Recognizes Chrome's picture-in-picture window across all 81 official Chrome
+  locale titles.
+- Lets you choose any eligible visible window from a browser or another
+  application.
 - Leaves your mouse usable while the video moves. Moving the pointer over the
-  PiP controls stops movement.
+  target controls stops movement.
+- Temporarily keeps the target window on top while DuckEggs is active and the
+  window is bound, including while DuckEggs is paused.
 - Remembers your layout preferences for each app, locally on your PC.
 - Includes visible Learning maps so you can see what DuckEggs has learned.
 - Avoids unnecessary moves during broad page updates, such as scrolling.
@@ -35,11 +36,11 @@ for release details.
 
 ## Requirements
 
-DuckEggs 0.4.0-alpha.3 supports Windows 10 or Windows 11, 64-bit. Automatic
-recognition is Chrome-only; manual selection can target another browser or
-application window for the current session. Other applications are available
-by explicit selection but are not yet live-validated as a compatibility
-guarantee. The DuckEggs interface remains in English.
+DuckEggs 0.4.0-alpha.4 supports Windows 10 or Windows 11, 64-bit. Automatic
+recognition remains limited to Chrome. Manual selection can target any eligible
+top-level window for the current session; other applications are available by
+explicit selection but are not yet live-validated as compatibility guarantees.
+The DuckEggs interface is in English.
 
 There is no installer, account, browser extension, or additional runtime to
 set up.
@@ -49,39 +50,44 @@ set up.
 1. Download the ZIP file.
 2. Extract it to a folder.
 3. Run `DuckEggs.exe`.
-4. Open a video in Chrome and turn on picture-in-picture.
-5. Click **Resume** in DuckEggs.
+4. For Chrome, open picture-in-picture and click **Resume**. For another
+   browser or application, click **Choose Window**, click the target window,
+   then click **Resume**.
 
 DuckEggs starts paused. Close any other DuckEggs versions before starting it.
-Automatic mode uses only one Chrome picture-in-picture window at a time.
-For another browser or application, open its floating video window, click
-**Choose PiP...**, then click the floating video window itself. Manual selection
-always leaves DuckEggs paused; use **Resume** when you are ready. The selection
-is not saved after exit.
+Automatic mode accepts one Chrome picture-in-picture window at a time. Manual
+selection always leaves DuckEggs paused and lasts only for the current session.
 
 ## Window controls
 
 The **To tray** action in the window header hides DuckEggs without changing
 whether it is paused or running. Use the notification-area icon to restore it.
-Right-click that icon to open DuckEggs, pause or resume it, or exit.
+Right-click the icon to open DuckEggs, pause or resume it, or exit.
 
-**Choose PiP...** opens a temporary point-and-click overlay. Hover over a window
+**Choose Window** opens a temporary point-and-click overlay. Hover over a window
 to see a teal outline and its title, then click once to pin it. Full-screen and
-maximized windows appear gray and cannot be selected. Press **Esc**, right-click,
-or click **Cancel** to exit without changing the current target. **Automatic**
-returns to Chrome-only discovery. Every exit leaves DuckEggs paused, so use
-**Resume** as a separate action. The overlay does not capture, preview, or store
-the selected window, and the selection click is not sent to the app below.
+maximized windows appear gray and cannot be selected. Press **Esc**,
+right-click, or click **Cancel** to exit without changing the current target.
+**Automatic** returns to Chrome PiP discovery. Every exit leaves DuckEggs
+paused, so use **Resume** as a separate action. The overlay does not capture,
+preview, or store the selected window, and the selection click is not sent to
+the app below.
 
 Closing the window still exits DuckEggs.
+
+While a target is bound, DuckEggs temporarily keeps it topmost, even while
+paused. Returning to **Automatic**, choosing another window, or exiting
+DuckEggs restores the target's previous topmost state. A window that was
+already topmost stays topmost. If DuckEggs is force-killed or crashes, this
+cleanup may not run.
 
 ## Your data
 
 Learning data and preferences stay on your PC in
-`%LOCALAPPDATA%\DuckEggs`. DuckEggs does not store screenshots and does not
-include analytics. Manual window names and transient hover details remain in
-memory for the current session only and are not written to learning data or
-`status.json`.
+`%LOCALAPPDATA%\DuckEggs`. DuckEggs does not collect analytics, take
+screenshots, or store them. Manual window names, transient hover details, and
+capture pixels remain in memory for the current session only and are not
+written to learning data or `status.json`.
 
 To reset DuckEggs, exit the app and delete that folder.
 

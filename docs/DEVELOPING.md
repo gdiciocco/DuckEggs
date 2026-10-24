@@ -1,14 +1,14 @@
-# Developing DuckEggs 0.4.0-alpha.3
+# Developing DuckEggs 0.4.0-alpha.4
 
 This document preserves the detailed engineering, build, and verification
 information for DuckEggs. See the [root README](../README.md) for the public
 overview.
 
-DuckEggs is a native C++20 port of the Schiva adaptive Picture-in-Picture
-experience. Automatic mode learns where Chrome's native PiP window fits your
-work and moves it only when the shared adaptive model finds a safe destination.
-An additional session-only manual mode can target a visible top-level window
-from another browser or application after explicit selection.
+DuckEggs is a native C++20 port of the Schiva adaptive placement experience.
+Automatic mode learns where Chrome's native PiP window fits your work and moves
+it only when the shared adaptive model finds a safe destination. An additional
+session-only manual mode can target any eligible visible top-level window from
+another browser or application after explicit selection.
 
 The product interface is entirely in English. Internal `schiva` namespaces and
 header paths remain frozen for compatibility with the ported core.
@@ -23,11 +23,11 @@ telemetry.
 
 The compact DuckEggs window uses a dark neutral interface with teal accents,
 Segoe UI typography, DPI-scaled metrics and native keyboard controls. It starts
-paused and shows a clear Paused/Watching/Moving/No PiP status, PiP
+paused and shows a clear Paused/Watching/Moving/No target status, target
 availability, learning updates, visual-signal state, and the primary
 Resume/Pause action. Learning maps and Exit are secondary actions.
 
-The compact footer also includes **Choose PiP...**. It opens a paced native
+The compact footer also includes **Choose Window**. It opens a paced native
 desktop picking overlay. Hovering a window shows its title and either a teal
 eligible outline or a gray full-screen state with a short reason. One
 deliberate left click sends that screen point to the owner thread, which
@@ -35,7 +35,9 @@ freshly resolves and pins the window before the overlay closes. **Esc**,
 right-click, and **Cancel** leave the existing target unchanged.
 **Automatic** returns to Chrome-only discovery. Opening, selecting, resetting,
 or closing the overlay leaves DuckEggs paused; Resume is a separate action.
-The overlay does not take screenshots or preview window contents.
+The overlay does not take screenshots or preview window contents. The compact
+600 by 360 window remains usable at its 560 by 340 minimum size with the
+**Choose Window** label.
 
 The product quote is presented compactly. UI updates avoid unnecessary
 refreshes to reduce flicker while runtime status changes.
@@ -49,12 +51,27 @@ The more prominent gold **Donate** action opens the donation chooser.
 Donations are voluntary; the suggested one-time amounts are €2, €5 and €10,
 with a custom amount available through PayPal.
 
-The brand mark is the approved DuckEggs raster artwork. Its checked-in master
-PNG is authoritative; the native header renders an embedded 256 px copy (with
-a 128 px fallback) without filesystem lookup. The ICO and preview images are
-deterministic Cairo resamples of the complete master canvas, preserving its
-transparent margins and brush, expression, shell and yolk details. No SVG is
-used as a reconstructed vector source.
+The brand mark is the approved 1254 by 1254 RGBA DuckEggs raster artwork. Its
+checked-in master PNG is authoritative and read-only; the native header renders
+it as a 52 logical-pixel aspect-fit mark from an embedded 256 px copy (with a
+128 px fallback) without filesystem lookup. The ICO, previews and embedded
+RCDATA images are deterministic Cairo resamples of the complete master canvas,
+preserving its transparent margins and brush, expression, shell and yolk
+details. The ICO contains 32-bit DIB entries with alpha and AND masks at 16, 20,
+24, 32, 40, 48, 64, 80, 96 and 128 px, plus a 256 px PNG entry. The retained
+512 px preview is not an ICO dimension. No SVG is used as a reconstructed
+vector source.
+
+Top-level windows select shared 32 logical-pixel and 16 logical-pixel icon
+resources using their DPI and refresh those icons after `WM_DPICHANGED`. The
+tray icon uses the system small-icon metrics with the system DPI. Icons loaded
+with `LR_SHARED` are owned by the system and are not destroyed by DuckEggs.
+
+`tools/render_duckeggs_icon.py` refuses to render unless the master hash and
+dimensions match the approved values. As a development-only artifact it also
+writes `build/duckeggs-logo-contact-sheet.png`, showing every actual ICO size on
+both dark and white backgrounds. The build directory is excluded from source
+packages.
 
 The Learning maps window is a read-only local viewer with:
 
@@ -108,6 +125,11 @@ or activate the viewer.
   click time, and bound-target revalidation. If a bound target later becomes
   full-screen or maximized, the binding is cleared and DuckEggs remains
   explicitly manual and paused, with no automatic Chrome fallback.
+- While a target is bound, DuckEggs temporarily makes that top-level window
+  topmost, including during the paused state. Returning to Automatic, changing
+  the target, or exiting restores the state captured before DuckEggs applied
+  its temporary topmost state. A window that was already topmost remains
+  topmost. Forced process termination or a crash can bypass cleanup.
 - A movement target is revalidated for geometry, cursor and held buttons
   immediately before it is applied. DuckEggs never activates, resizes,
   reorders or closes a user window.
@@ -255,7 +277,7 @@ cpack -C Release
 ```
 
 The portable artifact is
-`DuckEggs-0.4.0-alpha.3-windows-x64.zip`. It contains the executable,
+`DuckEggs-0.4.0-alpha.4-windows-x64.zip`. It contains the executable,
 launchers, documentation, and the complete SQLite and nlohmann/json license
 and provenance files under `licenses/`.
 

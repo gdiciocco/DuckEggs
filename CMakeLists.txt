@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 project(
     DuckEggs
     VERSION 0.4.0
-    DESCRIPTION "DuckEggs adaptive Chrome PiP placement"
+    DESCRIPTION "DuckEggs adaptive window placement"
     LANGUAGES C CXX)
 if(WIN32)
     enable_language(RC)
@@ -248,13 +248,13 @@ install(
     DESTINATION resources)
 
 set(CPACK_PACKAGE_NAME "DuckEggs")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-alpha.3")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-alpha.4")
 set(CPACK_PACKAGE_FILE_NAME
-    "DuckEggs-${PROJECT_VERSION}-alpha.3-windows-x64")
+    "DuckEggs-${PROJECT_VERSION}-alpha.4-windows-x64")
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_SOURCE_GENERATOR "ZIP")
 set(CPACK_SOURCE_PACKAGE_FILE_NAME
-    "DuckEggs-${PROJECT_VERSION}-alpha.3-source")
+    "DuckEggs-${PROJECT_VERSION}-alpha.4-source")
 set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
 set(
     CPACK_SOURCE_IGNORE_FILES

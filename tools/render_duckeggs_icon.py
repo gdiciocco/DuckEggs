@@ -27,10 +27,10 @@ CONTACT_SHEET_PATH = ROOT / "build" / "duckeggs-logo-contact-sheet.png"
 
 MASTER_SIZE = 1254
 MASTER_SHA256 = (
-    "b51b0df0056436bca5d4b2ac8294dec24d5e7947ec366c428e2097f865d4afa0"
+    "baabe140bf9398af64402b64300ce2b6a85d244273f328b9cb9b003e101271f5"
 )
-ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
-CONTACT_SIZES = (16, 24, 32, 36, 42, 48, 64)
+ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 256)
+CONTACT_SIZES = ICON_SIZES
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 CAIRO_FORMAT_ARGB32 = 0
 CAIRO_OPERATOR_SOURCE = 1
@@ -199,39 +199,92 @@ class Cairo:
         surfaces: dict[int, ctypes.c_void_p],
         path: Path,
     ) -> None:
-        cell_width = 100
-        cell_height = 96
-        sheet_width = cell_width * len(CONTACT_SIZES)
-        sheet = self.new_surface(sheet_width, cell_height)
+        label_width = 112
+        column_widths = {
+            size: max(56, size + 16) for size in CONTACT_SIZES
+        }
+        header_height = 32
+        row_height = max(CONTACT_SIZES) + 40
+        sheet_width = label_width + sum(column_widths.values())
+        sheet_height = header_height + row_height * 2
+        sheet = self.new_surface(sheet_width, sheet_height)
         context = self.lib.cairo_create(sheet)
         if not context:
             self.destroy(sheet)
             raise RuntimeError("cairo could not create contact-sheet context")
         try:
-            self.lib.cairo_set_source_rgb(context, 0.11, 0.13, 0.15)
+            self.lib.cairo_set_source_rgb(context, 1.0, 1.0, 1.0)
             self.lib.cairo_paint(context)
-            for index, size in enumerate(CONTACT_SIZES):
-                image = surfaces[size]
-                x = index * cell_width + (cell_width - size) // 2
-                y = 8
-                self.lib.cairo_set_source_surface(context, image, x, y)
-                self.lib.cairo_pattern_set_filter(
-                    self.lib.cairo_get_source(context), CAIRO_FILTER_NEAREST
-                )
-                self.lib.cairo_paint(context)
+            self.lib.cairo_set_source_rgb(context, 0.11, 0.13, 0.15)
+            self.lib.cairo_rectangle(
+                context,
+                0.0,
+                0.0,
+                float(sheet_width),
+                float(header_height + row_height),
+            )
+            self.lib.cairo_fill(context)
 
-                self.lib.cairo_set_source_rgba(
-                    context, 0.86, 0.89, 0.91, 1.0
+            for row, dark in enumerate((True, False)):
+                row_top = header_height + row * row_height
+                if not dark:
+                    self.lib.cairo_set_source_rgb(
+                        context, 1.0, 1.0, 1.0
+                    )
+                    self.lib.cairo_rectangle(
+                        context,
+                        0.0,
+                        float(row_top),
+                        float(sheet_width),
+                        float(row_height),
+                    )
+                    self.lib.cairo_fill(context)
+
+                panel_text = (
+                    (0.86, 0.89, 0.91) if dark else (0.10, 0.13, 0.16)
                 )
+                self.lib.cairo_set_source_rgb(context, *panel_text)
                 self.lib.cairo_select_font_face(
-                    context, b"DejaVu Sans", 0, 0
+                    context, b"DejaVu Sans", 0, 1
                 )
-                self.lib.cairo_set_font_size(context, 11.0)
-                label = f"actual {size} px".encode("ascii")
+                self.lib.cairo_set_font_size(context, 12.0)
+                row_label = (
+                    b"Dark background" if dark else b"White background"
+                )
                 self.lib.cairo_move_to(
-                    context, index * cell_width + 10.0, 84.0
+                    context, 12.0, row_top + 132.0
                 )
-                self.lib.cairo_show_text(context, label)
+                self.lib.cairo_show_text(context, row_label)
+
+                column_left = label_width
+                for size in CONTACT_SIZES:
+                    column_width = column_widths[size]
+                    image = surfaces[size]
+                    x = column_left + (column_width - size) // 2
+                    y = row_top + 8
+                    self.lib.cairo_set_source_surface(
+                        context, image, float(x), float(y)
+                    )
+                    self.lib.cairo_pattern_set_filter(
+                        self.lib.cairo_get_source(context),
+                        CAIRO_FILTER_NEAREST,
+                    )
+                    self.lib.cairo_paint(context)
+
+                    self.lib.cairo_set_source_rgb(context, *panel_text)
+                    self.lib.cairo_select_font_face(
+                        context, b"DejaVu Sans", 0, 0
+                    )
+                    self.lib.cairo_set_font_size(context, 11.0)
+                    self.lib.cairo_move_to(
+                        context,
+                        float(column_left + 4),
+                        float(row_top + max(CONTACT_SIZES) + 17),
+                    )
+                    self.lib.cairo_show_text(
+                        context, f"{size}px".encode("ascii")
+                    )
+                    column_left += column_width
         finally:
             self.lib.cairo_destroy(context)
         self.write_png(sheet, path)
@@ -357,9 +410,19 @@ def _validate_ico(path: Path) -> None:
             if _png_size(image) != (actual_width, actual_height):
                 raise RuntimeError("ICO PNG dimensions do not match")
         else:
-            dib_width, dib_height = struct.unpack_from("<ii", image, 4)
+            header_size, dib_width, dib_height = struct.unpack_from(
+                "<Iii", image, 0
+            )
             if (dib_width, dib_height) != (actual_width, actual_height * 2):
                 raise RuntimeError("ICO DIB dimensions do not match")
+            mask_stride = ((actual_width + 31) // 32) * 4
+            expected_length = (
+                header_size
+                + actual_width * actual_height * 4
+                + mask_stride * actual_height
+            )
+            if header_size != 40 or len(image) != expected_length:
+                raise RuntimeError("ICO DIB or AND mask has invalid length")
         found_sizes.append(actual_width)
     if tuple(found_sizes) != ICON_SIZES:
         raise RuntimeError(f"unexpected ICO sizes: {found_sizes}")

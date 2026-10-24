@@ -319,6 +319,91 @@ void test_identity_predicate() {
     changed = bound;
     changed.executable = L"player.exe";
     CHECK(schiva::detail::manual_window_identity_matches(bound, changed));
+    changed = bound;
+    changed.handle = 0x9999;
+    CHECK(!schiva::detail::manual_window_identity_matches(bound, changed));
+    changed = bound;
+    changed.process_id = 0;
+    CHECK(!schiva::detail::manual_window_identity_matches(bound, changed));
+    changed = bound;
+    changed.lifetime_marker = 0xdef;
+    CHECK(!schiva::detail::manual_window_identity_matches(bound, changed));
+}
+
+void test_manual_topmost_lease_policy() {
+    using schiva::detail::ManualTopmostAction;
+    using schiva::detail::manual_topmost_action;
+    using schiva::detail::manual_topmost_commit_promotion;
+    using schiva::detail::manual_topmost_lease;
+
+    auto originally_normal =
+        manual_topmost_lease(false);
+    CHECK(!originally_normal.originally_topmost);
+    CHECK(!originally_normal.owns_promotion);
+    CHECK(manual_topmost_action(
+              originally_normal, true, false) ==
+          ManualTopmostAction::Promote);
+    CHECK(manual_topmost_action(
+              originally_normal, true, true) ==
+          ManualTopmostAction::None);
+
+    // Ownership starts only after a successful, verified promotion.
+    CHECK(manual_topmost_action(
+              originally_normal, false, true) ==
+          ManualTopmostAction::None);
+    manual_topmost_commit_promotion(originally_normal);
+    CHECK(originally_normal.owns_promotion);
+    CHECK(manual_topmost_action(
+              originally_normal, true, false) ==
+          ManualTopmostAction::Promote);
+    CHECK(manual_topmost_action(
+              originally_normal, false, true) ==
+          ManualTopmostAction::Restore);
+    CHECK(manual_topmost_action(
+              originally_normal, false, false) ==
+          ManualTopmostAction::None);
+
+    // Re-selecting the same binding retains this original bit and ownership.
+    const auto reselected = originally_normal;
+    CHECK(!reselected.originally_topmost);
+    CHECK(reselected.owns_promotion);
+    CHECK(manual_topmost_action(
+              reselected, true, true) ==
+          ManualTopmostAction::None);
+
+    auto originally_topmost =
+        manual_topmost_lease(true);
+    CHECK(originally_topmost.originally_topmost);
+    CHECK(!originally_topmost.owns_promotion);
+    CHECK(manual_topmost_action(
+              originally_topmost, true, true) ==
+          ManualTopmostAction::None);
+    CHECK(manual_topmost_action(
+              originally_topmost, true, false) ==
+          ManualTopmostAction::Promote);
+    manual_topmost_commit_promotion(originally_topmost);
+    CHECK(!originally_topmost.owns_promotion);
+    CHECK(manual_topmost_action(
+              originally_topmost, false, true) ==
+          ManualTopmostAction::None);
+    CHECK(manual_topmost_action(
+              originally_topmost, false, false) ==
+          ManualTopmostAction::None);
+
+    // A promotion that never completed is not owned and must not be undone.
+    const schiva::detail::ManualTopmostLease failed_promotion{
+        false, false};
+    CHECK(manual_topmost_action(
+              failed_promotion, false, true) ==
+          ManualTopmostAction::None);
+
+    // Even a malformed ownership bit cannot demote a pre-existing topmost
+    // window.
+    const schiva::detail::ManualTopmostLease malformed{
+        true, true};
+    CHECK(manual_topmost_action(
+              malformed, false, true) ==
+          ManualTopmostAction::None);
 }
 
 void test_portable_manual_policy() {
@@ -740,6 +825,7 @@ void test_manual_picker_reopen_keeps_session_latch() {
 
 int main() {
     test_identity_predicate();
+    test_manual_topmost_lease_policy();
     test_portable_manual_policy();
     test_default_backend_contract();
     test_runtime_manual_commands();

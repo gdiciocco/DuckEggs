@@ -19,6 +19,49 @@ struct ManualWindowIdentity {
     std::uintptr_t lifetime_marker{};
 };
 
+struct ManualTopmostLease {
+    bool originally_topmost{};
+    bool owns_promotion{};
+};
+
+enum class ManualTopmostAction {
+    None,
+    Promote,
+    Restore,
+};
+
+// A new lease only remembers the original style. Promotion ownership becomes
+// true after SetWindowPos succeeded and its result was verified.
+constexpr ManualTopmostLease manual_topmost_lease(
+    bool originally_topmost) noexcept {
+    return {originally_topmost, false};
+}
+
+constexpr void manual_topmost_commit_promotion(
+    ManualTopmostLease& lease) noexcept {
+    if (!lease.originally_topmost) {
+        lease.owns_promotion = true;
+    }
+}
+
+// While a binding is active its target must be topmost, including while
+// DuckEggs is paused. On release, only a promotion that DuckEggs actually owns
+// on an originally non-topmost window may be undone.
+constexpr ManualTopmostAction manual_topmost_action(
+    const ManualTopmostLease& lease,
+    bool binding_active,
+    bool currently_topmost) noexcept {
+    if (binding_active) {
+        return currently_topmost ? ManualTopmostAction::None
+                                 : ManualTopmostAction::Promote;
+    }
+    if (lease.originally_topmost || !lease.owns_promotion) {
+        return ManualTopmostAction::None;
+    }
+    return currently_topmost ? ManualTopmostAction::Restore
+                             : ManualTopmostAction::None;
+}
+
 inline wchar_t manual_identity_fold(wchar_t value) {
     if (value >= L'A' && value <= L'Z') {
         return static_cast<wchar_t>(value + (L'a' - L'A'));

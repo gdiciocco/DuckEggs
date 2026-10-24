@@ -447,6 +447,53 @@ UINT system_dpi() {
     return dpi == 0 ? 96 : dpi;
 }
 
+HICON load_shared_app_icon(int logical_size, UINT dpi) {
+    const int pixels = std::max(
+        1, MulDiv(logical_size, static_cast<int>(dpi), 96));
+    return reinterpret_cast<HICON>(LoadImageW(
+        GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
+        IMAGE_ICON,
+        pixels,
+        pixels,
+        LR_DEFAULTCOLOR | LR_SHARED));
+}
+
+void apply_window_icons(HWND window, UINT dpi) {
+    if (window == nullptr) {
+        return;
+    }
+    if (HICON large = load_shared_app_icon(32, dpi); large != nullptr) {
+        SendMessageW(
+            window,
+            WM_SETICON,
+            ICON_BIG,
+            reinterpret_cast<LPARAM>(large));
+    }
+    if (HICON small = load_shared_app_icon(16, dpi); small != nullptr) {
+        SendMessageW(
+            window,
+            WM_SETICON,
+            ICON_SMALL,
+            reinterpret_cast<LPARAM>(small));
+    }
+}
+
+HICON load_tray_app_icon() {
+    const int metric_width = GetSystemMetrics(SM_CXSMICON);
+    const int metric_height = GetSystemMetrics(SM_CYSMICON);
+    const int dpi_size = MulDiv(16, static_cast<int>(system_dpi()), 96);
+    const int pixels = std::max(
+        1, std::max(dpi_size, std::max(metric_width, metric_height)));
+    return reinterpret_cast<HICON>(LoadImageW(
+        GetModuleHandleW(nullptr),
+        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
+        IMAGE_ICON,
+        pixels,
+        pixels,
+        LR_DEFAULTCOLOR | LR_SHARED));
+}
+
 void enable_per_monitor_dpi() {
     using SetDpiContext = BOOL(WINAPI*)(DPI_AWARENESS_CONTEXT);
     const HMODULE user32 = GetModuleHandleW(L"user32.dll");
@@ -615,7 +662,8 @@ struct MainView {
     std::wstring badge{L"Starting"};
     ARGB badge_color{kAccent};
     std::wstring pip_value{L"Checking"};
-    std::wstring pip_detail{L"Looking for a Chrome PiP window."};
+    std::wstring pip_detail{
+        L"Looking for a Chrome PiP window. Choose Window for another app."};
     std::wstring learning_value{L"0"};
     std::wstring learning_detail{L"Shared learning updates."};
     std::wstring visual_value{L"Waiting"};
@@ -633,6 +681,7 @@ public:
     ControlPanel(HWND window, AdaptiveApplication& application)
         : window_(window), application_(application) {
         dpi_ = dpi_for_window(window_);
+        apply_window_icons(window_, dpi_);
         taskbar_created_message_ =
             RegisterWindowMessageW(L"TaskbarCreated");
         create_fonts();
@@ -739,7 +788,7 @@ private:
         learning_button_ =
             make_button(kLearningButton, L"Learning maps");
         choose_button_ =
-            make_button(kChooseButton, L"Choose PiP...");
+            make_button(kChooseButton, L"Choose Window");
         donate_button_ = make_button(kDonateButton, L"Donate");
         tray_button_ = make_button(kTrayButton, L"To tray");
         exit_button_ = make_button(kExitButton, L"Exit");
@@ -793,7 +842,7 @@ private:
             learning_width,
             height);
         right -= learning_width + gap;
-        const int choose_width = px(122);
+        const int choose_width = px(128);
         changed |= move_child_if_needed(
             window_,
             choose_button_,
@@ -839,7 +888,7 @@ private:
             view.badge = L"Moving";
             view.badge_color = kWarm;
         } else if (state == "no_pip" || candidates == 0) {
-            view.badge = L"No PiP";
+            view.badge = L"No target";
             view.badge_color = kSecondary;
         } else if (state == "starting") {
             view.badge = L"Starting";
@@ -867,8 +916,9 @@ private:
                     ? L"Manual mode; Resume when ready."
                     : L"DuckEggs is watching the selected manual target.";
         } else if (candidates > 1) {
-            view.pip_value = L"Multiple windows";
-            view.pip_detail = L"Close all but one Chrome PiP window.";
+            view.pip_value = L"Multiple targets";
+            view.pip_detail =
+                L"Close extras, or choose a specific window manually.";
         } else if (moving) {
             view.pip_value = L"Moving safely";
             view.pip_detail = L"Easing toward a clear destination.";
@@ -880,7 +930,8 @@ private:
                             : L"DuckEggs is watching for a safe position.";
         } else {
             view.pip_value = L"Not found";
-            view.pip_detail = L"Open Picture-in-Picture in Chrome.";
+            view.pip_detail =
+                L"Open Chrome PiP, or choose another window.";
         }
 
         view.learning_value = std::to_wstring(learning);
@@ -888,7 +939,8 @@ private:
             learning == 1 ? L"Shared learning update."
                           : L"Shared learning updates.";
         if (view.observe_only) {
-            view.learning_detail = L"Observe only; the PiP will not move.";
+            view.learning_detail =
+                L"Observe only; the target window will not move.";
         }
         if (capture_error) {
             view.visual_value = L"Needs access";
@@ -1019,19 +1071,13 @@ private:
         icon.uID = kTrayIconId;
         icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
         icon.uCallbackMessage = kTrayIconMessage;
-        icon.hIcon = reinterpret_cast<HICON>(LoadImageW(
-            GetModuleHandleW(nullptr),
-            MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
-            IMAGE_ICON,
-            GetSystemMetrics(SM_CXSMICON),
-            GetSystemMetrics(SM_CYSMICON),
-            LR_DEFAULTCOLOR | LR_SHARED));
+        icon.hIcon = load_tray_app_icon();
         if (icon.hIcon == nullptr) {
             return false;
         }
         lstrcpynW(
             icon.szTip,
-            L"DuckEggs",
+            L"DuckEggs - adaptive window placement",
             static_cast<int>(std::size(icon.szTip)));
         if (Shell_NotifyIconW(NIM_ADD, &icon) == FALSE) {
             return false;
@@ -1126,9 +1172,9 @@ private:
         const REAL margin = rpx(16);
         const RectF egg{
             margin,
-            rpx(10),
-            rpx(42),
-            rpx(42)};
+            rpx(8),
+            rpx(52),
+            rpx(52)};
         draw_egg_mark(graphics, egg, rpx(1.8F));
 
         HDC measure = device;
@@ -1259,8 +1305,8 @@ private:
         graphics.Flush();
 
         RECT title{
-            client.left + px(68),
-            px(8),
+            client.left + px(78),
+            px(6),
             static_cast<LONG>(badge.X) - px(10),
             px(40)};
         draw_text(
@@ -1270,13 +1316,13 @@ private:
             kTextGdi,
             heading_font_);
         RECT subtitle{
-            client.left + px(70),
-            px(39),
+            client.left + px(79),
+            px(38),
             static_cast<LONG>(badge.X) - px(10),
-            px(59)};
+            px(60)};
         draw_text(
             device,
-            L"Adaptive Picture-in-Picture placement",
+            L"Adaptive window placement",
             subtitle,
             kSecondaryGdi,
             small_font_);
@@ -1312,12 +1358,14 @@ private:
             draw_text(
                 device,
                 view_.observe_only
-                    ? L"Observe only. Learning stays local; the PiP will "
+                    ? L"Observe only. Learning stays local; the target "
+                      L"window will "
                       L"not move."
                     : view_.paused
                           ? L"Starts paused. Resume when ready; learning "
                             L"stays local."
-                          : L"Safety-led placement. Visual evidence and "
+                          : L"Safety-led window placement. Visual evidence "
+                            L"and "
                             L"learning stay local.",
                 status,
                 kSecondaryGdi,
@@ -1326,7 +1374,7 @@ private:
         }
 
         const std::array<std::wstring, 3> labels{
-            L"PiP window", L"Learning updates", L"Visual signals"};
+            L"Target window", L"Learning updates", L"Visual signals"};
         const std::array<std::wstring, 3> values{
             view_.pip_value,
             view_.learning_value,
@@ -1490,6 +1538,7 @@ private:
             return 0;
         case WM_DPICHANGED: {
             dpi_ = static_cast<UINT>(HIWORD(wparam));
+            apply_window_icons(window_, dpi_);
             create_fonts();
             const auto* suggested =
                 reinterpret_cast<const RECT*>(lparam);
@@ -1502,6 +1551,10 @@ private:
                 suggested->bottom - suggested->top,
                 SWP_NOZORDER | SWP_NOACTIVATE);
             layout_controls();
+            if (hidden_to_tray_ && !add_tray_icon()) {
+                restore_from_tray(true);
+                return 0;
+            }
             InvalidateRect(window_, nullptr, FALSE);
             return 0;
         }
@@ -1666,7 +1719,7 @@ public:
         window_ = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             detail::kManualPickerClass,
-            L"DuckEggs - Click the PiP window",
+            L"DuckEggs - Choose a window",
             WS_POPUP | WS_CLIPCHILDREN,
             virtual_bounds_.left,
             virtual_bounds_.top,
@@ -1679,9 +1732,10 @@ public:
         if (window_ == nullptr) {
             destroy_resources();
             throw PlatformError(
-                "the manual PiP picking overlay could not start");
+                "the manual window picking overlay could not start");
         }
         dpi_ = dpi_for_window(window_);
+        apply_window_icons(window_, dpi_);
         create_controls();
         cached_snapshot_ = application_.manual_snapshot();
         render();
@@ -1997,7 +2051,7 @@ private:
         graphics.FillRectangle(&panel_brush, rectf(banner));
         draw_string(
             graphics,
-            L"Click the video window to pin it \u00b7 Esc or right-click to cancel",
+            L"Click the target window to pin it \u00b7 Esc or right-click to cancel",
             heading,
             text_brush,
             RectF(
@@ -2024,7 +2078,7 @@ private:
         } else {
             status = selecting_
                          ? L"Pinning the selected window..."
-                         : L"Use Automatic to restore Chrome discovery, or Cancel.";
+                         : L"Use Automatic for Chrome PiP discovery, or Cancel.";
         }
         draw_string(
             graphics,
@@ -2285,6 +2339,7 @@ private:
             return 0;
         case WM_DPICHANGED: {
             dpi_ = static_cast<UINT>(HIWORD(wparam));
+            apply_window_icons(window_, dpi_);
             release_layer();
             layout_controls();
             render();
@@ -2510,6 +2565,10 @@ public:
             destroy_fonts();
             throw PlatformError("the Learning maps window could not start");
         }
+        dpi_ = dpi_for_window(window_);
+        create_fonts();
+        layout_controls();
+        apply_window_icons(window_, dpi_);
     }
 
     ~HeatmapWindow() {
@@ -3378,9 +3437,9 @@ private:
         draw_text(
             device,
             L"Violet: foreground\n"
-            L"Amber: current PiP\n"
+            L"Amber: current target\n"
             L"Teal: recommendation\n"
-            L"White dashed: full PiP",
+            L"White dashed: full target",
             outlines_text,
             kSecondaryGdi,
             small_font_,
@@ -3432,7 +3491,7 @@ private:
                      : L"unknown");
             if (const auto pip_size =
                     heatmap::snapshot_pip_size(data_)) {
-                message += L"   Full PiP: " +
+                message += L"   Full target: " +
                     std::to_wstring(static_cast<int>(
                         pip_size->first * 100.0 + 0.5)) +
                     L"% \u00d7 " +
@@ -3451,7 +3510,7 @@ private:
         } else {
             draw_text(
                 device,
-                L"Hover over a cell to inspect its value and the full PiP "
+                L"Hover over a cell to inspect its value and the full target "
                 L"footprint.",
                 hover_title,
                 kSecondaryGdi,
@@ -3682,6 +3741,7 @@ private:
             return 0;
         case WM_DPICHANGED: {
             dpi_ = static_cast<UINT>(HIWORD(wparam));
+            apply_window_icons(window_, dpi_);
             create_fonts();
             const auto* suggested =
                 reinterpret_cast<const RECT*>(lparam);
@@ -4098,25 +4158,14 @@ void register_classes() {
     if (registered) {
         return;
     }
+    const UINT dpi = system_dpi();
     WNDCLASSEXW panel{};
     panel.cbSize = sizeof(panel);
     panel.style = CS_HREDRAW | CS_VREDRAW;
     panel.lpfnWndProc = &ControlPanel::window_proc;
     panel.hInstance = GetModuleHandleW(nullptr);
-    panel.hIcon = reinterpret_cast<HICON>(LoadImageW(
-        panel.hInstance,
-        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
-        IMAGE_ICON,
-        GetSystemMetrics(SM_CXICON),
-        GetSystemMetrics(SM_CYICON),
-        LR_DEFAULTCOLOR | LR_SHARED));
-    panel.hIconSm = reinterpret_cast<HICON>(LoadImageW(
-        panel.hInstance,
-        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
-        IMAGE_ICON,
-        GetSystemMetrics(SM_CXSMICON),
-        GetSystemMetrics(SM_CYSMICON),
-        LR_DEFAULTCOLOR | LR_SHARED));
+    panel.hIcon = load_shared_app_icon(32, dpi);
+    panel.hIconSm = load_shared_app_icon(16, dpi);
     panel.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     panel.hbrBackground = nullptr;
     panel.lpszClassName = kPanelClass;
@@ -4131,20 +4180,8 @@ void register_classes() {
     maps.style = CS_HREDRAW | CS_VREDRAW;
     maps.lpfnWndProc = &HeatmapWindow::window_proc;
     maps.hInstance = GetModuleHandleW(nullptr);
-    maps.hIcon = reinterpret_cast<HICON>(LoadImageW(
-        maps.hInstance,
-        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
-        IMAGE_ICON,
-        GetSystemMetrics(SM_CXICON),
-        GetSystemMetrics(SM_CYICON),
-        LR_DEFAULTCOLOR | LR_SHARED));
-    maps.hIconSm = reinterpret_cast<HICON>(LoadImageW(
-        maps.hInstance,
-        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
-        IMAGE_ICON,
-        GetSystemMetrics(SM_CXSMICON),
-        GetSystemMetrics(SM_CYSMICON),
-        LR_DEFAULTCOLOR | LR_SHARED));
+    maps.hIcon = load_shared_app_icon(32, dpi);
+    maps.hIconSm = load_shared_app_icon(16, dpi);
     maps.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     maps.hbrBackground = nullptr;
     maps.lpszClassName = kHeatmapClass;
@@ -4159,27 +4196,15 @@ void register_classes() {
     chooser.style = CS_HREDRAW | CS_VREDRAW;
     chooser.lpfnWndProc = &ManualPickerWindow::window_proc;
     chooser.hInstance = GetModuleHandleW(nullptr);
-    chooser.hIcon = reinterpret_cast<HICON>(LoadImageW(
-        chooser.hInstance,
-        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
-        IMAGE_ICON,
-        GetSystemMetrics(SM_CXICON),
-        GetSystemMetrics(SM_CYICON),
-        LR_DEFAULTCOLOR | LR_SHARED));
-    chooser.hIconSm = reinterpret_cast<HICON>(LoadImageW(
-        chooser.hInstance,
-        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
-        IMAGE_ICON,
-        GetSystemMetrics(SM_CXSMICON),
-        GetSystemMetrics(SM_CYSMICON),
-        LR_DEFAULTCOLOR | LR_SHARED));
+    chooser.hIcon = load_shared_app_icon(32, dpi);
+    chooser.hIconSm = load_shared_app_icon(16, dpi);
     chooser.hCursor = LoadCursorW(nullptr, IDC_CROSS);
     chooser.hbrBackground = nullptr;
     chooser.lpszClassName = detail::kManualPickerClass;
     if (RegisterClassExW(&chooser) == 0 &&
         GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         throw PlatformError(
-            "the manual PiP window chooser class could not register");
+            "the manual window chooser class could not register");
     }
     registered = true;
 }

@@ -46,6 +46,8 @@ constexpr int kSafetyMargin = 28;
 constexpr DWORD kMaskProcessQuery = 0x1000;
 constexpr UINT kMoveFlags =
     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+constexpr UINT kTopmostFlags =
+    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
 
 double monotonic_now() {
     return std::chrono::duration<double>(
@@ -212,6 +214,7 @@ struct ManualBinding {
     WindowRecord record;
     std::string selection_id;
     HANDLE marker{};
+    detail::ManualTopmostLease topmost_lease;
 };
 
 struct Candidate {
@@ -266,6 +269,33 @@ bool window_is_input_transparent(HWND window) {
         GetWindowLongPtrW(window, GWL_EXSTYLE);
     return (extended_style & WS_EX_LAYERED) != 0 &&
            (extended_style & WS_EX_TRANSPARENT) != 0;
+}
+
+std::optional<bool> window_is_topmost(HWND window) {
+    SetLastError(ERROR_SUCCESS);
+    const LONG_PTR extended_style =
+        GetWindowLongPtrW(window, GWL_EXSTYLE);
+    if (extended_style == 0 && GetLastError() != ERROR_SUCCESS) {
+        return std::nullopt;
+    }
+    return (extended_style & WS_EX_TOPMOST) != 0;
+}
+
+bool set_window_topmost(HWND window, bool topmost) {
+    const HWND insert_after = topmost ? HWND_TOPMOST : HWND_NOTOPMOST;
+    return SetWindowPos(
+               window,
+               insert_after,
+               0,
+               0,
+               0,
+               0,
+               kTopmostFlags) != FALSE;
+}
+
+bool verify_window_topmost(HWND window, bool topmost) {
+    const auto observed = window_is_topmost(window);
+    return observed.has_value() && *observed == topmost;
 }
 
 bool same_motion_identity(
@@ -698,54 +728,143 @@ public:
             manual_binding_->record.handle == current.handle &&
             manual_marker_matches(current.handle) &&
             same_motion_identity(manual_binding_->record, current)) {
-            manual_binding_->record = current;
+            // Re-selecting the same window must retain the lease's original
+            // topmost bit and cannot reinterpret our promotion as user state.
+            const auto refreshed = read_manual_identity();
+            if (!refreshed.has_value()) {
+                return false;
+            }
+            manual_binding_->record = *refreshed;
             manual_binding_->selection_id =
                 "manual-" + std::to_string(++manual_selection_generation_);
             manual_mode_ = true;
             manual_error_.reset();
             last_error_.reset();
+            invalidate_capture();
             return true;
         }
 
-        // A same-handle binding with a broken marker must be removed before
-        // placing the replacement property on that window.
-        if (manual_binding_.has_value() &&
-            manual_binding_->record.handle == current.handle) {
-            remove_manual_marker();
-        }
-        HANDLE marker = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (marker == nullptr) {
-            manual_error_ =
-                "The selected window could not be pinned safely.";
+        ManualBinding candidate;
+        candidate.record = current;
+        candidate.selection_id =
+            "manual-" + std::to_string(manual_selection_generation_ + 1U);
+        HANDLE marker = nullptr;
+        const auto fail_candidate = [&](std::string message) {
+            if (candidate.marker != nullptr) {
+                rollback_new_manual_binding(candidate);
+            } else if (marker != nullptr &&
+                       (!IsWindow(current.handle) ||
+                        GetPropW(
+                            current.handle,
+                            manual_property_name_.c_str()) != marker)) {
+                CloseHandle(marker);
+            }
+            manual_error_ = std::move(message);
+            last_error_ = manual_error_;
             return false;
-        }
-        if (GetPropW(
-                current.handle,
-                manual_property_name_.c_str()) != nullptr ||
-            !SetPropW(
-                current.handle,
-                manual_property_name_.c_str(),
-                marker)) {
-            CloseHandle(marker);
-            manual_error_ =
-                "The selected window could not be pinned safely.";
-            return false;
-        }
-        if (GetPropW(
-                current.handle,
-                manual_property_name_.c_str()) != marker) {
-            // The property is no longer ours, so removal would be unsafe.
-            CloseHandle(marker);
-            manual_error_ =
-                "The selected window could not be pinned safely.";
-            return false;
+        };
+
+        try {
+            marker = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+            if (marker == nullptr) {
+                return fail_candidate(
+                    "The selected window could not be pinned safely.");
+            }
+            if (GetPropW(
+                    current.handle,
+                    manual_property_name_.c_str()) != nullptr ||
+                !SetPropW(
+                    current.handle,
+                    manual_property_name_.c_str(),
+                    marker)) {
+                return fail_candidate(
+                    "The selected window could not be pinned safely.");
+            }
+            if (GetPropW(
+                    current.handle,
+                    manual_property_name_.c_str()) != marker) {
+                return fail_candidate(
+                    "The selected window could not be pinned safely.");
+            }
+            candidate.marker = marker;
+
+            std::string identity_error;
+            const auto validated = validate_manual_binding(
+                candidate, true, identity_error);
+            if (!validated.has_value()) {
+                return fail_candidate(
+                    identity_error.empty()
+                        ? "The selected window could not be validated."
+                        : std::move(identity_error));
+            }
+            candidate.record = *validated;
+
+            const auto topmost = window_is_topmost(current.handle);
+            if (!topmost.has_value()) {
+                return fail_candidate(
+                    "The selected window topmost state could not be read.");
+            }
+            candidate.topmost_lease = detail::manual_topmost_lease(*topmost);
+            if (detail::manual_topmost_action(
+                    candidate.topmost_lease, true, *topmost) ==
+                detail::ManualTopmostAction::Promote) {
+                if (!set_window_topmost(current.handle, true)) {
+                    return fail_candidate(
+                        "The selected window could not be kept topmost.");
+                }
+                detail::manual_topmost_commit_promotion(
+                    candidate.topmost_lease);
+                if (!verify_window_topmost(current.handle, true)) {
+                    return fail_candidate(
+                        "The selected window topmost state could not be "
+                        "verified.");
+                }
+                const auto after_promotion = validate_manual_binding(
+                    candidate, true, identity_error);
+                if (!after_promotion.has_value()) {
+                    return fail_candidate(
+                        identity_error.empty()
+                            ? "The selected window changed while it was "
+                              "being pinned."
+                            : std::move(identity_error));
+                }
+                candidate.record = *after_promotion;
+            }
+
+            const auto final_topmost = window_is_topmost(current.handle);
+            if (!final_topmost.has_value() || !*final_topmost) {
+                return fail_candidate(
+                    "The selected window could not be kept topmost.");
+            }
+
+            // The replacement is fully ready. Only now may the previous
+            // binding be released.
+            if (manual_binding_.has_value()) {
+                std::string cleanup_error;
+                if (!remove_manual_marker(&cleanup_error)) {
+                    (void)fail_candidate(
+                        cleanup_error.empty()
+                            ? "The previous manual window could not be "
+                              "released safely."
+                            : std::move(cleanup_error));
+                    // Cleanup restores topmost before removing the marker.
+                    // If marker removal then failed, reassert the retained
+                    // binding so it cannot remain demoted while still bound.
+                    (void)read_manual_identity();
+                    return false;
+                }
+            }
+        } catch (const std::exception& exception) {
+            return fail_candidate(
+                std::string("The selected window could not be pinned: ") +
+                exception.what());
+        } catch (...) {
+            return fail_candidate(
+                "The selected window could not be pinned safely.");
         }
 
-        remove_manual_marker();
-        manual_binding_ = ManualBinding{
-            current,
-            "manual-" + std::to_string(++manual_selection_generation_),
-            marker};
+        manual_binding_ = std::move(candidate);
+        ++manual_selection_generation_;
         manual_mode_ = true;
         manual_error_.reset();
         last_error_.reset();
@@ -757,7 +876,15 @@ public:
         if (closed_) {
             return false;
         }
-        remove_manual_marker();
+        std::string cleanup_error;
+        if (!remove_manual_marker(&cleanup_error)) {
+            manual_error_ = cleanup_error.empty()
+                                ? "The manual window topmost state could not "
+                                  "be restored safely."
+                                : std::move(cleanup_error);
+            last_error_ = manual_error_;
+            return false;
+        }
         manual_mode_ = false;
         manual_error_.reset();
         last_error_.reset();
@@ -1163,7 +1290,9 @@ public:
         capture_worker_.close();
         invalidate_capture();
         end_motion();
-        remove_manual_marker();
+        if (!remove_manual_marker()) {
+            discard_manual_binding();
+        }
         manual_mode_ = false;
         manual_error_.reset();
         last_records_.clear();
@@ -1822,22 +1951,191 @@ private:
                    manual_binding_->marker;
     }
 
-    void remove_manual_marker() {
+    std::optional<WindowRecord> validate_manual_binding(
+        const ManualBinding& binding,
+        bool require_visible,
+        std::string& failure) {
+        const HWND handle = binding.record.handle;
+        if (binding.marker == nullptr || !IsWindow(handle)) {
+            failure = "The selected manual window was closed.";
+            return std::nullopt;
+        }
+        if (require_visible &&
+            (!IsWindowVisible(handle) || IsIconic(handle) ||
+             GetAncestor(handle, GA_ROOT) != handle ||
+             window_is_cloaked(handle))) {
+            failure =
+                "The selected manual window is no longer visible and "
+                "restorable.";
+            return std::nullopt;
+        }
+        if (GetPropW(handle, manual_property_name_.c_str()) !=
+            binding.marker) {
+            failure = "The selected manual window lifetime marker changed.";
+            return std::nullopt;
+        }
+
+        DWORD process_id = 0;
+        GetWindowThreadProcessId(handle, &process_id);
+        if (process_id == 0) {
+            failure =
+                "The selected manual window identity is unavailable.";
+            return std::nullopt;
+        }
+        const std::wstring class_name = window_class(handle);
+        const auto process = lookup_process(process_id);
+        const detail::ManualWindowIdentity expected{
+            reinterpret_cast<std::uintptr_t>(binding.record.handle),
+            static_cast<std::uint32_t>(binding.record.process_id),
+            binding.record.creation_time,
+            binding.record.class_name,
+            binding.record.process_basename,
+            reinterpret_cast<std::uintptr_t>(binding.marker)};
+        const detail::ManualWindowIdentity current{
+            reinterpret_cast<std::uintptr_t>(handle),
+            static_cast<std::uint32_t>(process_id),
+            process.has_value() ? process->creation_time : 0,
+            class_name,
+            process.has_value() ? process->basename : std::wstring{},
+            reinterpret_cast<std::uintptr_t>(
+                GetPropW(handle, manual_property_name_.c_str()))};
+        if (!detail::manual_window_identity_matches(expected, current)) {
+            failure = "The selected manual window identity changed.";
+            return std::nullopt;
+        }
+
+        WindowRecord result = binding.record;
+        result.process_id = process_id;
+        result.class_name = class_name;
+        result.title = window_title(handle);
+        result.process_basename = process->basename;
+        result.creation_time = process->creation_time;
+        result.rect = window_rect(handle).value_or(binding.record.rect);
+        result.is_target = false;
+        return result;
+    }
+
+    bool cleanup_manual_binding(
+        const ManualBinding& binding,
+        std::string& failure) noexcept {
+        try {
+            const auto current = validate_manual_binding(
+                binding, false, failure);
+            if (!current.has_value()) {
+                return false;
+            }
+            const auto topmost = window_is_topmost(current->handle);
+            if (!topmost.has_value()) {
+                failure =
+                    "The manual window topmost state could not be read.";
+                return false;
+            }
+            if (detail::manual_topmost_action(
+                    binding.topmost_lease, false, *topmost) ==
+                detail::ManualTopmostAction::Restore) {
+                if (!set_window_topmost(current->handle, false) ||
+                    !verify_window_topmost(current->handle, false)) {
+                    failure =
+                        "The manual window topmost state could not be "
+                        "restored.";
+                    return false;
+                }
+            }
+
+            // SetWindowPos can yield. Revalidate every lifetime and process
+            // component immediately before touching the marker.
+            const auto revalidated = validate_manual_binding(
+                binding, false, failure);
+            if (!revalidated.has_value()) {
+                return false;
+            }
+            if (GetPropW(
+                    revalidated->handle,
+                    manual_property_name_.c_str()) != binding.marker ||
+                RemovePropW(
+                    revalidated->handle,
+                    manual_property_name_.c_str()) != binding.marker) {
+                failure =
+                    "The manual window lifetime marker changed during "
+                    "cleanup.";
+                return false;
+            }
+            return true;
+        } catch (const std::exception& exception) {
+            failure = exception.what();
+            return false;
+        } catch (...) {
+            failure = "The manual window could not be released safely.";
+            return false;
+        }
+    }
+
+    bool remove_manual_marker(std::string* error = nullptr) noexcept {
+        if (!manual_binding_.has_value()) {
+            return true;
+        }
+        std::string cleanup_error;
+        if (!cleanup_manual_binding(*manual_binding_, cleanup_error)) {
+            if (error != nullptr) {
+                try {
+                    *error = cleanup_error.empty()
+                                 ? "The manual window could not be released "
+                                   "safely."
+                                 : std::move(cleanup_error);
+                } catch (...) {
+                }
+            }
+            return false;
+        }
+        const HANDLE marker = manual_binding_->marker;
+        manual_binding_.reset();
+        if (marker != nullptr) {
+            CloseHandle(marker);
+        }
+        return true;
+    }
+
+    void discard_manual_binding() noexcept {
         if (!manual_binding_.has_value()) {
             return;
         }
         const HWND handle = manual_binding_->record.handle;
-        if (IsWindow(handle) && manual_marker_matches(handle)) {
-            RemovePropW(handle, manual_property_name_.c_str());
-        }
-        if (manual_binding_->marker != nullptr) {
-            CloseHandle(manual_binding_->marker);
-        }
+        const HANDLE marker = manual_binding_->marker;
+        const bool marker_attached =
+            IsWindow(handle) && marker != nullptr &&
+            GetPropW(handle, manual_property_name_.c_str()) == marker;
         manual_binding_.reset();
+        // If the property still references the event, its handle must remain
+        // valid even when identity checks forbid removing the property.
+        if (!marker_attached && marker != nullptr) {
+            CloseHandle(marker);
+        }
+    }
+
+    void rollback_new_manual_binding(ManualBinding& binding) noexcept {
+        std::string cleanup_error;
+        const bool released =
+            cleanup_manual_binding(binding, cleanup_error);
+        if (!released) {
+            const bool marker_attached =
+                IsWindow(binding.record.handle) &&
+                binding.marker != nullptr &&
+                GetPropW(
+                    binding.record.handle,
+                    manual_property_name_.c_str()) == binding.marker;
+            if (!marker_attached && binding.marker != nullptr) {
+                CloseHandle(binding.marker);
+            }
+        } else if (binding.marker != nullptr) {
+            CloseHandle(binding.marker);
+        }
+        binding.marker = nullptr;
     }
 
     void fail_manual(std::string message) {
-        remove_manual_marker();
+        if (!remove_manual_marker()) {
+            discard_manual_binding();
+        }
         motion_lease_.reset();
         manual_error_ = std::move(message);
         last_error_ = manual_error_;
@@ -1850,38 +2148,18 @@ private:
             return std::nullopt;
         }
         const ManualBinding binding = *manual_binding_;
-        const HWND handle = binding.record.handle;
-        if (!IsWindow(handle)) {
-            fail_manual("The selected manual window was closed.");
-            return std::nullopt;
-        }
-        if (!IsWindowVisible(handle) || IsIconic(handle) ||
-            GetAncestor(handle, GA_ROOT) != handle ||
-            window_is_cloaked(handle)) {
+        std::string validation_error;
+        auto result = validate_manual_binding(
+            binding, true, validation_error);
+        if (!result.has_value()) {
             fail_manual(
-                "The selected manual window is no longer visible and "
-                "restorable.");
+                validation_error.empty()
+                    ? "The selected manual window could not be validated."
+                    : std::move(validation_error));
             return std::nullopt;
         }
-        if (!manual_marker_matches(handle)) {
-            fail_manual(
-                "The selected manual window lifetime marker changed.");
-            return std::nullopt;
-        }
-        DWORD process_id = 0;
-        GetWindowThreadProcessId(handle, &process_id);
-        if (process_id == 0) {
-            fail_manual(
-                "The selected manual window identity is unavailable.");
-            return std::nullopt;
-        }
-        const std::wstring class_name = window_class(handle);
-        const std::wstring title = window_title(handle);
-        const auto process = lookup_process(process_id);
-        const Rect rect = window_rect(handle).value_or(Rect{});
-        if (!process.has_value() || process->basename.empty() ||
-            !valid_creation_time(process->creation_time) ||
-            rect.width() <= 0 || rect.height() <= 0) {
+        const Rect rect = result->rect;
+        if (rect.width() <= 0 || rect.height() <= 0) {
             fail_manual(
                 "The selected manual window identity could not be "
                 "validated.");
@@ -1893,39 +2171,51 @@ private:
                 rect,
                 geometry.monitor,
                 geometry.work,
-                IsZoomed(handle) != FALSE);
+                IsZoomed(result->handle) != FALSE);
         if (!eligibility.eligible) {
             fail_manual(eligibility.reason);
             return std::nullopt;
         }
-        const detail::ManualWindowIdentity expected{
-            reinterpret_cast<std::uintptr_t>(binding.record.handle),
-            static_cast<std::uint32_t>(binding.record.process_id),
-            binding.record.creation_time,
-            binding.record.class_name,
-            binding.record.process_basename,
-            reinterpret_cast<std::uintptr_t>(binding.marker)};
-        const detail::ManualWindowIdentity current{
-            reinterpret_cast<std::uintptr_t>(handle),
-            static_cast<std::uint32_t>(process_id),
-            process->creation_time,
-            class_name,
-            process->basename,
-            reinterpret_cast<std::uintptr_t>(
-                GetPropW(handle, manual_property_name_.c_str()))};
-        if (!detail::manual_window_identity_matches(expected, current)) {
+
+        const auto topmost = window_is_topmost(result->handle);
+        if (!topmost.has_value()) {
             fail_manual(
-                "The selected manual window identity changed.");
+                "The selected manual window topmost state could not be "
+                "read.");
             return std::nullopt;
         }
-        WindowRecord result = binding.record;
-        result.process_id = process_id;
-        result.class_name = class_name;
-        result.title = title;
-        result.process_basename = process->basename;
-        result.creation_time = process->creation_time;
-        result.rect = rect;
-        result.is_target = false;
+        if (detail::manual_topmost_action(
+                binding.topmost_lease, true, *topmost) ==
+            detail::ManualTopmostAction::Promote) {
+            if (!set_window_topmost(result->handle, true)) {
+                fail_manual(
+                    "The selected manual window could not be kept topmost.");
+                return std::nullopt;
+            }
+            if (!verify_window_topmost(result->handle, true)) {
+                fail_manual(
+                    "The selected manual window topmost state could not be "
+                    "verified.");
+                return std::nullopt;
+            }
+            auto after_promotion = validate_manual_binding(
+                binding, true, validation_error);
+            if (!after_promotion.has_value()) {
+                fail_manual(
+                    validation_error.empty()
+                        ? "The selected manual window changed while its "
+                          "topmost state was restored."
+                        : std::move(validation_error));
+                return std::nullopt;
+            }
+            result = std::move(after_promotion);
+            const auto verified_topmost = window_is_topmost(result->handle);
+            if (!verified_topmost.has_value() || !*verified_topmost) {
+                fail_manual(
+                    "The selected manual window could not be kept topmost.");
+                return std::nullopt;
+            }
+        }
         return result;
     }
 
