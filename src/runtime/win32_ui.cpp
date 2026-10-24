@@ -1007,6 +1007,7 @@ private:
             static_cast<int>(std::size(text_buffer)));
         const std::wstring label(text_buffer);
 
+        FillRect(item.hDC, &item.rcItem, background_brush_);
         Graphics graphics(item.hDC);
         graphics.SetSmoothingMode(SmoothingModeAntiAlias);
         const RectF bounds = rectangle(item.rcItem);
@@ -1380,7 +1381,6 @@ private:
             make_layer_button(kManualLayer, L"Manual preference");
         placement_ =
             make_layer_button(kPlacementLayer, L"Placement");
-        SendMessageW(activity_, BM_SETCHECK, BST_CHECKED, 0);
         background_brush_ = CreateSolidBrush(kSurfaceGdi);
         if (profile_ != nullptr) {
             SendMessageW(
@@ -1465,14 +1465,12 @@ private:
             rpx(12));
         const REAL outline_top =
             result.sidebar.GetBottom() - rpx(126);
+        const REAL detail_top = result.legend.GetBottom() + rpx(78);
         result.detail = RectF(
             result.sidebar.X + rpx(20),
-            result.sidebar.Y + rpx(332),
+            detail_top,
             result.sidebar.Width - rpx(40),
-            std::max<REAL>(
-                rpx(58),
-                outline_top -
-                    (result.sidebar.Y + rpx(332)) - rpx(16)));
+            std::max<REAL>(0, outline_top - detail_top - rpx(16)));
         result.outlines = RectF(
             result.sidebar.X + rpx(20),
             outline_top,
@@ -1623,28 +1621,31 @@ private:
         }
     }
 
-    std::string layer_key() const {
-        if (placement_ != nullptr &&
-            SendMessageW(placement_, BM_GETCHECK, 0, 0) == BST_CHECKED) {
-            return "placement";
-        }
-        if (manual_ != nullptr &&
-            SendMessageW(manual_, BM_GETCHECK, 0, 0) == BST_CHECKED) {
+    std::optional<std::string_view> layer_key_for_control(
+        int identifier) const {
+        switch (identifier) {
+        case kActivityLayer:
+            return "activity";
+        case kManualLayer:
             return "manual";
+        case kPlacementLayer:
+            return "placement";
+        default:
+            return std::nullopt;
         }
-        return "activity";
+    }
+
+    std::string layer_key() const {
+        return selected_layer_;
     }
 
     void select_layer(int identifier) {
-        for (const auto [control, id] :
-             {std::pair<HWND, int>{activity_, kActivityLayer},
-              std::pair<HWND, int>{manual_, kManualLayer},
-              std::pair<HWND, int>{placement_, kPlacementLayer}}) {
-            SendMessageW(
-                control,
-                BM_SETCHECK,
-                id == identifier ? BST_CHECKED : BST_UNCHECKED,
-                0);
+        const auto key = layer_key_for_control(identifier);
+        if (!key.has_value()) {
+            return;
+        }
+        selected_layer_ = *key;
+        for (HWND control : {activity_, manual_, placement_}) {
             InvalidateRect(control, nullptr, FALSE);
         }
         InvalidateRect(window_, nullptr, FALSE);
@@ -1916,7 +1917,7 @@ private:
             &unknown,
             RectF(
                 areas.legend.X,
-                areas.legend.GetBottom() + rpx(16),
+                areas.legend.GetBottom() + rpx(40),
                 rpx(16),
                 rpx(12)));
         graphics.Flush();
@@ -2032,9 +2033,9 @@ private:
                   DT_RIGHT | DT_TOP | DT_SINGLELINE);
         RECT unknown_text{
             static_cast<LONG>(areas.legend.X + rpx(23)),
-            static_cast<LONG>(areas.legend.GetBottom() + rpx(13)),
+            static_cast<LONG>(areas.legend.GetBottom() + rpx(38)),
             static_cast<LONG>(areas.legend.GetRight()),
-            static_cast<LONG>(areas.legend.GetBottom() + rpx(34))};
+            static_cast<LONG>(areas.legend.GetBottom() + rpx(58))};
         draw_text(
             device,
             L"Unknown / unavailable (gray)",
@@ -2247,12 +2248,15 @@ private:
     }
 
     void draw_button(const DRAWITEMSTRUCT& item) {
+        const auto button_layer =
+            layer_key_for_control(static_cast<int>(item.CtlID));
         const bool selected =
-            SendMessageW(
-                item.hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            button_layer.has_value() &&
+            *button_layer == selected_layer_;
         const bool hovered =
             hovered_control_ == static_cast<int>(item.CtlID);
         const bool focused = (item.itemState & ODS_FOCUS) != 0;
+        FillRect(item.hDC, &item.rcItem, background_brush_);
         Graphics graphics(item.hDC);
         graphics.SetSmoothingMode(SmoothingModeAntiAlias);
         const RectF bounds = rectangle(item.rcItem);
@@ -2288,10 +2292,13 @@ private:
             item.hwndItem,
             text_buffer,
             static_cast<int>(std::size(text_buffer)));
+        RECT text_rect = item.rcItem;
+        text_rect.left += px(12);
+        text_rect.right -= px(12);
         draw_text(
             item.hDC,
             text_buffer,
-            item.rcItem,
+            text_rect,
             selected ? kTextGdi : kSecondaryGdi,
             semibold_font_,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
@@ -2517,6 +2524,7 @@ private:
     UINT dpi_{96};
     int hovered_control_{};
     std::optional<std::string> selected_profile_;
+    std::string selected_layer_{"activity"};
     std::vector<heatmap::ProfileChoice> choices_;
     std::string profile_signature_;
     Json bridge_ = Json::object();
