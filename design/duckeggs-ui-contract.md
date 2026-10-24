@@ -45,3 +45,12 @@ user-facing strings, executable/default data namespace branded. Coordinator will
 inspect paused DuckEggs windows only (no real PiP actuation/capture); all code,
 test, rendering helpers, build changes and fixes exclusively DeepSeek. Workers
 must not use actual native UI/capture/mouse. No Python stop/overwrite/migration.
+
+## Logo requirement — user clarification 2026-10-24
+The mark depicts a stylized man being hit by an egg. Use the friendly simplified
+head-and-shoulders drawing with the egg and small impact strokes near the head,
+keeping the dark slate, teal and yellow palette. The same composition appears
+in both native window headers and the embedded Windows executable/window icon.
+Original editable vector artwork: resources/duckeggs-logo.svg. Static Windows
+icon: resources/DuckEggs.ico (16,24,32,48,64,128,256px). Native scalable rendering:
+src/runtime/brand_mark.hpp. No extra runtime dependency is introduced.
