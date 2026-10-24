@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render DuckEggs.ico and its preview from the checked-in SVG."""
+"""Render DuckEggs.ico and previews from the checked-in sumi-e SVGs."""
 
 from __future__ import annotations
 
@@ -12,10 +12,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SVG_PATH = ROOT / "resources" / "duckeggs-logo.svg"
+SMALL_SVG_PATH = ROOT / "resources" / "duckeggs-logo-small.svg"
 ICO_PATH = ROOT / "resources" / "DuckEggs.ico"
 PREVIEW_PATH = ROOT / "resources" / "duckeggs-logo-512.png"
+SMALL_PREVIEW_PATH = ROOT / "resources" / "duckeggs-logo-small-48.png"
 ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
+SMALL_ICON_MAX = 48
 PREVIEW_SIZE = 512
+SMALL_PREVIEW_SIZE = 48
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
@@ -29,7 +33,8 @@ class _Rectangle(ctypes.Structure):
 
 
 class Renderer:
-    def __init__(self) -> None:
+    def __init__(self, svg_path: Path) -> None:
+        self.svg_path = svg_path
         self.cairo = ctypes.CDLL("libcairo.so.2")
         self.rsvg = ctypes.CDLL("librsvg-2.so.2")
 
@@ -79,12 +84,14 @@ class Renderer:
             raise RuntimeError("cairo could not create the icon surface")
         context = self.cairo.cairo_create(surface)
         handle = self.rsvg.rsvg_handle_new_from_file(
-            os.fsencode(SVG_PATH), None
+            os.fsencode(self.svg_path), None
         )
         if not handle:
             self.cairo.cairo_destroy(context)
             self.cairo.cairo_surface_destroy(surface)
-            raise RuntimeError(f"librsvg could not open {SVG_PATH}")
+            raise RuntimeError(
+                f"librsvg could not open {self.svg_path}"
+            )
         try:
             rectangle = _Rectangle(0.0, 0.0, float(size), float(size))
             error = ctypes.c_void_p()
@@ -225,8 +232,14 @@ def _validate_ico(path: Path) -> None:
 
 
 def main() -> None:
-    renderer = Renderer()
-    rendered = {size: renderer.render(size) for size in ICON_SIZES}
+    large_renderer = Renderer(SVG_PATH)
+    small_renderer = Renderer(SMALL_SVG_PATH)
+    rendered = {
+        size: (
+            small_renderer if size <= SMALL_ICON_MAX else large_renderer
+        ).render(size)
+        for size in ICON_SIZES
+    }
     ico_entries = []
     for size in ICON_SIZES:
         png, dib = rendered[size]
@@ -235,12 +248,16 @@ def main() -> None:
     ICO_PATH.write_bytes(_build_ico(ico_entries))
     _validate_ico(ICO_PATH)
 
-    preview_png, _ = renderer.render(PREVIEW_SIZE)
+    preview_png, _ = large_renderer.render(PREVIEW_SIZE)
     PREVIEW_PATH.write_bytes(preview_png)
+    small_preview_png, _ = small_renderer.render(SMALL_PREVIEW_SIZE)
+    SMALL_PREVIEW_PATH.write_bytes(small_preview_png)
     print(
         f"wrote {ICO_PATH.relative_to(ROOT)} "
         f"({', '.join(map(str, ICON_SIZES))} px) and "
-        f"{PREVIEW_PATH.relative_to(ROOT)} ({PREVIEW_SIZE} px)"
+        f"previews {PREVIEW_PATH.relative_to(ROOT)} ({PREVIEW_SIZE} px), "
+        f"{SMALL_PREVIEW_PATH.relative_to(ROOT)} "
+        f"({SMALL_PREVIEW_SIZE} px)"
     )
 
 
