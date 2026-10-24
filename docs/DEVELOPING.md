@@ -172,6 +172,9 @@ vendor/nlohmann/json.hpp
 
 The build performs no network fetch and has no external runtime DLL
 dependency. MSVC x64 builds use the static `/MT` runtime for every target.
+`schiva_ui` is intentionally an object library because the runtime and UI
+reference each other; direct object inclusion avoids relying on linker
+archive-rescanning behavior or CMake link groups.
 
 ```bat
 cmake --preset windows-msvc

@@ -137,7 +137,10 @@ if(WIN32)
             NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 endif()
 
-add_library(schiva_ui STATIC src/runtime/win32_ui.cpp)
+# runtime.cpp calls into the UI while the UI uses the runtime. Linking two
+# static archives with that cycle is not portable across linkers, so keep the
+# UI object on every consumer's link line directly.
+add_library(schiva_ui OBJECT src/runtime/win32_ui.cpp)
 target_include_directories(
     schiva_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime")
 target_link_libraries(schiva_ui PUBLIC schiva_runtime)
