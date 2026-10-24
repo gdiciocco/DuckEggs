@@ -84,12 +84,15 @@ struct FakeState {
     bool paused{true};
     bool manual_mode{};
     bool lost{};
+    bool motion_active{};
+    schiva::Rect pip{640, 360, 960, 540};
     std::string selected_token;
     std::string selection_error;
     int window_generation{};
     int windows_calls{};
     int select_calls{};
     int reset_calls{};
+    int observe_calls{};
     int end_motion_calls{};
     int begin_motion_calls{};
     int move_calls{};
@@ -111,35 +114,47 @@ public:
     schiva::Observation observe(double, bool) override {
         owner();
         std::lock_guard lock(state_->mutex);
+        ++state_->observe_calls;
         schiva::Observation observation;
-        observation.cursor = {20, 20};
+        observation.cursor = {610, 350};
         observation.work_area = {0, 0, 1280, 800};
         if (state_->manual_mode && !state_->lost) {
             observation.pip = schiva::WindowInfo{
                 "hwnd:1", "manual-window", "window",
-                {640, 360, 960, 540}};
+                state_->pip};
         }
         return observation;
     }
 
-    bool begin_motion(const std::string&) override {
+    bool begin_motion(const std::string& pip_id) override {
         owner();
         std::lock_guard lock(state_->mutex);
         ++state_->begin_motion_calls;
-        return state_->manual_mode && !state_->lost && !state_->paused;
+        state_->motion_active =
+            pip_id == "hwnd:1" && state_->manual_mode &&
+            !state_->lost && !state_->paused;
+        return state_->motion_active;
     }
 
     void end_motion() override {
         owner();
         std::lock_guard lock(state_->mutex);
         ++state_->end_motion_calls;
+        state_->motion_active = false;
     }
 
-    bool move(const std::string&, int, int) override {
+    bool move(const std::string& pip_id, int left, int top) override {
         owner();
         std::lock_guard lock(state_->mutex);
         ++state_->move_calls;
-        return false;
+        const bool allowed =
+            pip_id == "hwnd:1" && state_->manual_mode &&
+            !state_->lost && !state_->paused &&
+            state_->motion_active;
+        if (allowed) {
+            state_->pip = state_->pip.moved_to(left, top);
+        }
+        return allowed;
     }
 
     schiva::ManualWindowSnapshot manual_windows() override {
@@ -382,11 +397,12 @@ void test_runtime_manual_commands() {
     application.request_manual_selection(first_token);
     CHECK(wait_until([&application, first_token] {
         const schiva::Json manual = application.manual_snapshot();
+        const schiva::Json runtime = application.snapshot();
         return manual["mode"] == "manual" &&
-               manual["selected_id"] == first_token;
+               manual["selected_id"] == first_token &&
+               runtime["paused"].get<bool>() &&
+               runtime["placement_mode"] == "manual";
     }));
-    CHECK(application.snapshot()["paused"].get<bool>());
-    CHECK(application.snapshot()["placement_mode"] == "manual");
     {
         std::lock_guard lock(state->mutex);
         CHECK(state->end_motion_calls > end_before_select);
@@ -417,9 +433,15 @@ void test_runtime_manual_commands() {
     }));
     CHECK(application.snapshot()["paused"].get<bool>());
 
+    const std::string token_before_refresh =
+        application.manual_snapshot()["windows"][0]["selection_token"]
+            .get<std::string>();
     application.request_manual_refresh();
-    CHECK(wait_until([&application] {
-        return application.manual_snapshot()["windows"].size() == 2;
+    CHECK(wait_until([&application, token_before_refresh] {
+        const schiva::Json manual = application.manual_snapshot();
+        return manual["windows"].size() == 2 &&
+               manual["windows"][0]["selection_token"] !=
+                   token_before_refresh;
     }));
     const std::string current_token =
         application.manual_snapshot()["windows"][1]["selection_token"]
@@ -436,10 +458,23 @@ void test_runtime_manual_commands() {
     CHECK(wait_until([&application] {
         return !application.manual_snapshot()["picker_open"].get<bool>();
     }));
+    const int moves_before_resume = [&state] {
+        std::lock_guard lock(state->mutex);
+        return state->move_calls;
+    }();
     application.request_pause();
     CHECK(wait_until([&application] {
         return !application.snapshot()["paused"].get<bool>();
     }));
+    CHECK(wait_until([&state, moves_before_resume] {
+        std::lock_guard lock(state->mutex);
+        return state->motion_active &&
+               state->move_calls > moves_before_resume;
+    }));
+    const int end_motion_before_loss = [&state] {
+        std::lock_guard lock(state->mutex);
+        return state->end_motion_calls;
+    }();
 
     {
         std::lock_guard lock(state->mutex);
@@ -450,19 +485,33 @@ void test_runtime_manual_commands() {
         const schiva::Json manual = application.manual_snapshot();
         return runtime["paused"].get<bool>() &&
                runtime["placement_mode"] == "manual" &&
+               !runtime["motion_active"].get<bool>() &&
                manual["mode"] == "manual" &&
+               manual["selected_id"].is_null() &&
                manual["error"].is_string();
     }));
-    const int moves_after_pause = [&state] {
+    int observes_after_loss = 0;
+    int moves_after_pause = 0;
+    int begin_motion_after_pause = 0;
+    {
         std::lock_guard lock(state->mutex);
-        return state->move_calls;
-    }();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    const int moves_after_loss = [&state] {
+        CHECK(state->move_calls > moves_before_resume);
+        CHECK(!state->motion_active);
+        CHECK(state->end_motion_calls > end_motion_before_loss);
+        observes_after_loss = state->observe_calls;
+        moves_after_pause = state->move_calls;
+        begin_motion_after_pause = state->begin_motion_calls;
+    }
+    CHECK(wait_until([&state, observes_after_loss] {
         std::lock_guard lock(state->mutex);
-        return state->move_calls;
-    }();
-    CHECK(moves_after_loss == moves_after_pause);
+        return state->observe_calls >= observes_after_loss + 3;
+    }));
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK(state->move_calls == moves_after_pause);
+        CHECK(state->begin_motion_calls == begin_motion_after_pause);
+        CHECK(!state->motion_active);
+    }
 
     {
         std::lock_guard lock(state->mutex);
