@@ -299,6 +299,24 @@ int text_width(HDC device, std::wstring_view text, HFONT font) {
     return size.cx;
 }
 
+int wrapped_text_height(
+    HDC device,
+    std::wstring_view text,
+    int width,
+    HFONT font,
+    UINT format = DT_LEFT | DT_TOP | DT_WORDBREAK) {
+    RECT measure{0, 0, std::max(1, width), 0};
+    const HGDIOBJ old = SelectObject(device, font);
+    DrawTextW(
+        device,
+        text.data(),
+        static_cast<int>(text.size()),
+        &measure,
+        format | DT_CALCRECT | DT_NOPREFIX);
+    SelectObject(device, old);
+    return measure.bottom - measure.top;
+}
+
 HFONT make_font(UINT dpi, int logical_pixels, int weight) {
     return CreateFontW(
         -MulDiv(logical_pixels, static_cast<int>(dpi), 96),
@@ -523,12 +541,16 @@ private:
         return static_cast<REAL>(px(logical));
     }
 
+    REAL rpx(REAL logical) const {
+        return logical * static_cast<REAL>(dpi_) / 96.0F;
+    }
+
     void create_fonts() {
         destroy_fonts();
-        heading_font_ = make_font(dpi_, 33, FW_SEMIBOLD);
+        heading_font_ = make_font(dpi_, 26, FW_SEMIBOLD);
         title_font_ = make_font(dpi_, 16, FW_SEMIBOLD);
-        body_font_ = make_font(dpi_, 14, FW_NORMAL);
-        semibold_font_ = make_font(dpi_, 14, FW_SEMIBOLD);
+        body_font_ = make_font(dpi_, 13, FW_NORMAL);
+        semibold_font_ = make_font(dpi_, 13, FW_SEMIBOLD);
         small_font_ = make_font(dpi_, 12, FW_NORMAL);
         badge_font_ = make_font(dpi_, 12, FW_SEMIBOLD);
         for (HWND button :
@@ -605,35 +627,34 @@ private:
         }
         RECT client{};
         GetClientRect(window_, &client);
-        const int margin = px(30);
-        const int gap = px(12);
-        const int height = px(44);
-        const int bottom = client.bottom - px(28);
+        const int margin = px(16);
+        const int gap = px(10);
+        const int height = px(34);
+        const int top = client.bottom - px(14) - height;
+        const int pause_width = px(118);
+        MoveWindow(
+            pause_button_,
+            margin,
+            top,
+            pause_width,
+            height,
+            TRUE);
         int right = client.right - margin;
-        const int exit_width = px(86);
+        const int exit_width = px(58);
         MoveWindow(
             exit_button_,
             right - exit_width,
-            bottom - height,
+            top,
             exit_width,
             height,
             TRUE);
         right -= exit_width + gap;
-        const int learning_width = px(164);
+        const int learning_width = px(128);
         MoveWindow(
             learning_button_,
             right - learning_width,
-            bottom - height,
+            top,
             learning_width,
-            height,
-            TRUE);
-        right -= learning_width + gap;
-        const int pause_width = px(142);
-        MoveWindow(
-            pause_button_,
-            right - pause_width,
-            bottom - height,
-            pause_width,
             height,
             TRUE);
         InvalidateRect(window_, nullptr, FALSE);
@@ -740,87 +761,118 @@ private:
         graphics.SetPixelOffsetMode(PixelOffsetModeHighQuality);
         graphics.Clear(color(kBackground));
 
-        const REAL margin = rpx(30);
-        const REAL card_top = rpx(112);
-        const REAL card_bottom = static_cast<REAL>(client.bottom) - rpx(92);
-        const RectF card{
-            margin,
-            card_top,
-            std::max<REAL>(0, client.right - margin * 2.0F),
-            std::max<REAL>(0, card_bottom - card_top)};
-        fill_round_rect(graphics, card, rpx(18), color(kSurface));
-        stroke_round_rect(graphics, card, rpx(18), color(kBorder));
-
+        const REAL margin = rpx(16);
         const RectF egg{
-            margin + rpx(2),
-            rpx(28),
-            rpx(56),
-            rpx(58)};
-        draw_egg_mark(graphics, egg, rpx(2));
+            margin,
+            rpx(10),
+            rpx(42),
+            rpx(42)};
+        draw_egg_mark(graphics, egg, rpx(1.8F));
 
         HDC measure = device;
-        const int badge_width =
-            text_width(measure, view_.badge, badge_font_) + px(44);
+        const int badge_width = std::max(
+            px(84),
+            text_width(measure, view_.badge, badge_font_) + px(38));
         const RectF badge{
             static_cast<REAL>(client.right) - margin -
                 static_cast<REAL>(badge_width),
-            rpx(34),
+            rpx(16),
             static_cast<REAL>(badge_width),
-            rpx(30)};
+            rpx(26)};
         draw_status_pill(graphics, badge, view_.badge_color);
+        graphics.Flush();
 
-        const REAL inner = rpx(24);
-        const REAL metric_top = card.Y + rpx(84);
-        const REAL error_height = view_.error.empty() ? 0.0F : rpx(58);
-        const REAL metric_bottom =
-            card.GetBottom() - inner - error_height -
-            (view_.error.empty() ? 0.0F : rpx(14));
-        const REAL metric_gap = rpx(12);
+        const REAL footer_top =
+            static_cast<REAL>(client.bottom) - rpx(14) - rpx(34);
+        REAL metric_top = rpx(90);
+        if (!view_.error.empty()) {
+            const REAL banner_top = rpx(61);
+            const REAL banner_width =
+                std::max<REAL>(0, client.right - margin * 2.0F);
+            const std::wstring error_message =
+                L"Needs attention: " + view_.error;
+            const int text_width_available =
+                std::max(1, static_cast<int>(banner_width) - px(28));
+            const int measured_height = wrapped_text_height(
+                device,
+                error_message,
+                text_width_available,
+                small_font_,
+                DT_LEFT | DT_TOP | DT_WORDBREAK);
+            const REAL maximum_height = std::clamp(
+                footer_top - banner_top - rpx(8) - rpx(104),
+                rpx(38),
+                rpx(90));
+            const REAL banner_height = std::clamp(
+                static_cast<REAL>(measured_height) + rpx(16),
+                rpx(38),
+                maximum_height);
+            const RectF banner{
+                margin,
+                banner_top,
+                banner_width,
+                banner_height};
+            fill_round_rect(
+                graphics, banner, rpx(11), color(kErrorSoft));
+            stroke_round_rect(
+                graphics,
+                banner,
+                rpx(11),
+                with_alpha(kError, 95));
+            graphics.Flush();
+            RECT error_text{
+                static_cast<LONG>(banner.X + rpx(14)),
+                static_cast<LONG>(banner.Y + rpx(6)),
+                static_cast<LONG>(banner.GetRight() - rpx(14)),
+                static_cast<LONG>(banner.GetBottom() - rpx(6))};
+            draw_text(
+                device,
+                error_message,
+                error_text,
+                kErrorGdi,
+                small_font_,
+                DT_LEFT | DT_TOP | DT_WORDBREAK);
+            metric_top = banner.GetBottom() + rpx(8);
+        }
+
+        const REAL metric_bottom = footer_top - rpx(12);
+        const REAL metric_gap = rpx(8);
         const REAL metric_width =
-            (card.Width - inner * 2.0F - metric_gap * 2.0F) / 3.0F;
+            std::max<REAL>(
+                0,
+                (client.right - margin * 2.0F -
+                 metric_gap * 2.0F) /
+                    3.0F);
+        const REAL metric_height =
+            std::max<REAL>(rpx(96), metric_bottom - metric_top);
         for (int index = 0; index < 3; ++index) {
             const RectF metric{
-                card.X + inner + index * (metric_width + metric_gap),
+                margin + index * (metric_width + metric_gap),
                 metric_top,
                 metric_width,
-                std::max<REAL>(rpx(96), metric_bottom - metric_top)};
+                metric_height};
             fill_round_rect(
-                graphics, metric, rpx(13), color(kSurfaceRaised));
+                graphics, metric, rpx(12), color(kSurfaceRaised));
             stroke_round_rect(
-                graphics, metric, rpx(13), color(kBorder));
+                graphics, metric, rpx(12), color(kBorder));
             const ARGB dot_color =
                 index == 0 ? view_.badge_color
                            : index == 1 ? kAccent : kWarm;
             SolidBrush dot(color(dot_color));
             graphics.FillEllipse(
                 &dot,
-                metric.X + rpx(17),
-                metric.Y + rpx(20),
-                rpx(8),
-                rpx(8));
-        }
-
-        if (!view_.error.empty()) {
-            const RectF error_card{
-                card.X + inner,
-                card.GetBottom() - inner - rpx(58),
-                card.Width - inner * 2.0F,
-                rpx(58)};
-            fill_round_rect(
-                graphics, error_card, rpx(12), color(kErrorSoft));
-            stroke_round_rect(
-                graphics,
-                error_card,
-                rpx(12),
-                with_alpha(kError, 95));
+                metric.X + rpx(11),
+                metric.Y + rpx(12),
+                rpx(7),
+                rpx(7));
         }
         graphics.Flush();
 
         RECT title{
-            client.left + px(92),
-            px(29),
-            client.right - px(220),
-            px(73)};
+            client.left + px(68),
+            px(8),
+            static_cast<LONG>(badge.X) - px(10),
+            px(40)};
         draw_text(
             device,
             L"DuckEggs",
@@ -828,10 +880,10 @@ private:
             kTextGdi,
             heading_font_);
         RECT subtitle{
-            client.left + px(94),
-            px(72),
-            client.right - px(170),
-            px(96)};
+            client.left + px(70),
+            px(39),
+            static_cast<LONG>(badge.X) - px(10),
+            px(59)};
         draw_text(
             device,
             L"Adaptive Picture-in-Picture placement",
@@ -841,7 +893,7 @@ private:
 
         const RectF badge_text_area = badge;
         RECT badge_text{
-            static_cast<LONG>(badge_text_area.X + rpx(22)),
+            static_cast<LONG>(badge_text_area.X + rpx(20)),
             static_cast<LONG>(badge_text_area.Y),
             static_cast<LONG>(badge_text_area.GetRight() - rpx(10)),
             static_cast<LONG>(badge_text_area.GetBottom())};
@@ -851,33 +903,37 @@ private:
             badge_text,
             kTextGdi,
             badge_font_,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-        RECT card_title{
-            static_cast<LONG>(card.X + inner),
-            static_cast<LONG>(card.Y + rpx(20)),
-            static_cast<LONG>(card.GetRight() - inner),
-            static_cast<LONG>(card.Y + rpx(44))};
-        draw_text(
-            device,
-            L"Current status",
-            card_title,
-            kTextGdi,
-            title_font_);
-        RECT card_subtitle{
-            static_cast<LONG>(card.X + inner),
-            static_cast<LONG>(card.Y + rpx(47)),
-            static_cast<LONG>(card.GetRight() - inner),
-            static_cast<LONG>(card.Y + rpx(68))};
-        draw_text(
-            device,
-            view_.paused
-                ? L"DuckEggs starts paused. Resume when you are ready."
-                : L"Learning stays local; PiP movement is always safety-led.",
-            card_subtitle,
-            kSecondaryGdi,
-            small_font_,
-            DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
+        if (view_.error.empty()) {
+            SolidBrush status_dot(color(view_.badge_color));
+            graphics.FillEllipse(
+                &status_dot,
+                margin,
+                rpx(70),
+                rpx(6),
+                rpx(6));
+            graphics.Flush();
+            RECT status{
+                static_cast<LONG>(margin + rpx(13)),
+                px(63),
+                client.right - px(16),
+                px(84)};
+            draw_text(
+                device,
+                view_.observe_only
+                    ? L"Observe only. Learning stays local; the PiP will "
+                      L"not move."
+                    : view_.paused
+                          ? L"Starts paused. Resume when ready; learning "
+                            L"stays local."
+                          : L"Safety-led placement. Visual evidence and "
+                            L"learning stay local.",
+                status,
+                kSecondaryGdi,
+                small_font_,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        }
 
         const std::array<std::wstring, 3> labels{
             L"Chrome PiP", L"Learning updates", L"Visual signals"};
@@ -891,12 +947,12 @@ private:
             view_.visual_detail};
         for (int index = 0; index < 3; ++index) {
             const REAL left =
-                card.X + inner + index * (metric_width + metric_gap);
+                margin + index * (metric_width + metric_gap);
             RECT label{
-                static_cast<LONG>(left + rpx(34)),
-                static_cast<LONG>(metric_top + rpx(12)),
-                static_cast<LONG>(left + metric_width - rpx(14)),
-                static_cast<LONG>(metric_top + rpx(31))};
+                static_cast<LONG>(left + rpx(24)),
+                static_cast<LONG>(metric_top + rpx(8)),
+                static_cast<LONG>(left + metric_width - rpx(10)),
+                static_cast<LONG>(metric_top + rpx(25))};
             draw_text(
                 device,
                 labels[static_cast<std::size_t>(index)],
@@ -905,44 +961,29 @@ private:
                 small_font_,
                 DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
             RECT value{
-                static_cast<LONG>(left + rpx(16)),
-                static_cast<LONG>(metric_top + rpx(39)),
-                static_cast<LONG>(left + metric_width - rpx(14)),
-                static_cast<LONG>(metric_top + rpx(66))};
+                static_cast<LONG>(left + rpx(11)),
+                static_cast<LONG>(metric_top + rpx(29)),
+                static_cast<LONG>(left + metric_width - rpx(10)),
+                static_cast<LONG>(metric_top + rpx(55))};
             draw_text(
                 device,
                 values[static_cast<std::size_t>(index)],
                 value,
                 kTextGdi,
                 title_font_,
-                DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
+                DT_LEFT | DT_TOP | DT_SINGLELINE);
             RECT detail{
-                static_cast<LONG>(left + rpx(16)),
-                static_cast<LONG>(metric_top + rpx(69)),
-                static_cast<LONG>(left + metric_width - rpx(14)),
-                static_cast<LONG>(metric_bottom - rpx(12))};
+                static_cast<LONG>(left + rpx(11)),
+                static_cast<LONG>(metric_top + rpx(58)),
+                static_cast<LONG>(left + metric_width - rpx(10)),
+                static_cast<LONG>(metric_top + metric_height - rpx(8))};
             draw_text(
                 device,
                 details[static_cast<std::size_t>(index)],
                 detail,
                 kSecondaryGdi,
                 small_font_,
-                DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
-        }
-
-        if (!view_.error.empty()) {
-            RECT error_text{
-                static_cast<LONG>(card.X + inner + rpx(16)),
-                static_cast<LONG>(card.GetBottom() - inner - rpx(52)),
-                static_cast<LONG>(card.GetRight() - inner - rpx(16)),
-                static_cast<LONG>(card.GetBottom() - inner - rpx(8))};
-            draw_text(
-                device,
-                view_.error,
-                error_text,
-                kErrorGdi,
-                small_font_,
-                DT_LEFT | DT_VCENTER | DT_WORDBREAK);
+                DT_LEFT | DT_TOP | DT_WORDBREAK);
         }
     }
 
@@ -1034,8 +1075,8 @@ private:
         }
         case WM_GETMINMAXINFO: {
             auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
-            info->ptMinTrackSize.x = px(620);
-            info->ptMinTrackSize.y = px(520);
+            info->ptMinTrackSize.x = px(560);
+            info->ptMinTrackSize.y = px(340);
             return 0;
         }
         case WM_HSCROLL:
@@ -1169,6 +1210,7 @@ private:
 struct HeatmapLayout {
     RectF projection;
     bool has_projection{};
+    RectF toolbar;
     RectF sidebar;
     RectF canvas;
     RectF selector_label;
@@ -1201,8 +1243,8 @@ public:
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            MulDiv(1120, static_cast<int>(dpi_), 96),
-            MulDiv(820, static_cast<int>(dpi_), 96),
+            MulDiv(920, static_cast<int>(dpi_), 96),
+            MulDiv(660, static_cast<int>(dpi_), 96),
             owner_,
             nullptr,
             GetModuleHandleW(nullptr),
@@ -1247,7 +1289,7 @@ private:
 
     void create_fonts() {
         destroy_fonts();
-        heading_font_ = make_font(dpi_, 29, FW_SEMIBOLD);
+        heading_font_ = make_font(dpi_, 26, FW_SEMIBOLD);
         title_font_ = make_font(dpi_, 16, FW_SEMIBOLD);
         body_font_ = make_font(dpi_, 14, FW_NORMAL);
         semibold_font_ = make_font(dpi_, 13, FW_SEMIBOLD);
@@ -1357,96 +1399,103 @@ private:
         RECT client{};
         GetClientRect(window_, &client);
         HeatmapLayout result;
-        const REAL margin = rpx(28);
-        REAL content_top = rpx(104);
+        const REAL margin = rpx(16);
+        result.toolbar = RectF(
+            margin,
+            rpx(70),
+            std::max<REAL>(0, client.right - margin * 2.0F),
+            rpx(32));
+        REAL content_top = result.toolbar.GetBottom() + rpx(12);
         const REAL full_width =
             std::max<REAL>(0, client.right - margin * 2.0F);
         result.has_projection = projection_visible();
         if (result.has_projection) {
             result.projection =
-                RectF(margin, content_top, full_width, rpx(58));
-            content_top += rpx(74);
+                RectF(margin, rpx(110), full_width, rpx(46));
+            content_top = result.projection.GetBottom() + rpx(12);
         }
         const REAL content_bottom =
             static_cast<REAL>(client.bottom) - margin;
-        const REAL sidebar_width = rpx(286);
+        const REAL sidebar_width = rpx(222);
         result.sidebar = RectF(
             margin,
             content_top,
             sidebar_width,
             std::max<REAL>(0, content_bottom - content_top));
         result.canvas = RectF(
-            margin + sidebar_width + rpx(18),
+            margin + sidebar_width + rpx(12),
             content_top,
             std::max<REAL>(
                 0,
                 client.right - margin -
-                    (margin + sidebar_width + rpx(18))),
+                    (margin + sidebar_width + rpx(12))),
             std::max<REAL>(0, content_bottom - content_top));
 
         result.selector_label = RectF(
-            result.sidebar.X + rpx(20),
-            result.sidebar.Y + rpx(18),
-            result.sidebar.Width - rpx(40),
-            rpx(20));
+            margin + rpx(8),
+            result.toolbar.Y,
+            rpx(88),
+            result.toolbar.Height);
         result.combo = RectF(
-            result.sidebar.X + rpx(20),
-            result.sidebar.Y + rpx(43),
-            result.sidebar.Width - rpx(40),
-            rpx(34));
+            margin + rpx(98),
+            result.toolbar.Y + rpx(3),
+            rpx(260),
+            rpx(26));
         result.layer_label = RectF(
-            result.sidebar.X + rpx(20),
-            result.sidebar.Y + rpx(91),
-            result.sidebar.Width - rpx(40),
-            rpx(20));
+            margin + rpx(370),
+            result.toolbar.Y,
+            rpx(54),
+            result.toolbar.Height);
         result.layer_group = RectF(
-            result.sidebar.X + rpx(16),
-            result.sidebar.Y + rpx(114),
-            result.sidebar.Width - rpx(32),
-            rpx(128));
+            margin + rpx(424),
+            result.toolbar.Y + rpx(2),
+            std::max<REAL>(
+                0, full_width - rpx(424)),
+            result.toolbar.Height - rpx(4));
         result.legend_label = RectF(
-            result.sidebar.X + rpx(20),
-            result.sidebar.Y + rpx(258),
-            result.sidebar.Width - rpx(40),
-            rpx(20));
+            result.sidebar.X + rpx(14),
+            result.sidebar.Y + rpx(14),
+            result.sidebar.Width - rpx(28),
+            rpx(16));
         result.legend = RectF(
-            result.sidebar.X + rpx(20),
-            result.sidebar.Y + rpx(282),
-            result.sidebar.Width - rpx(40),
-            rpx(12));
-        const REAL outline_top =
-            result.sidebar.GetBottom() - rpx(126);
-        const REAL detail_top = result.legend.GetBottom() + rpx(78);
+            result.sidebar.X + rpx(14),
+            result.sidebar.Y + rpx(34),
+            result.sidebar.Width - rpx(28),
+            rpx(10));
+        const REAL learning_top =
+            result.sidebar.GetBottom() - rpx(58);
+        const REAL outline_top = learning_top - rpx(76);
+        const REAL detail_top = result.sidebar.Y + rpx(112);
         result.detail = RectF(
-            result.sidebar.X + rpx(20),
+            result.sidebar.X + rpx(14),
             detail_top,
-            result.sidebar.Width - rpx(40),
-            std::max<REAL>(0, outline_top - detail_top - rpx(16)));
+            result.sidebar.Width - rpx(28),
+            std::max<REAL>(0, outline_top - detail_top - rpx(10)));
         result.outlines = RectF(
-            result.sidebar.X + rpx(20),
+            result.sidebar.X + rpx(14),
             outline_top,
-            result.sidebar.Width - rpx(40),
-            rpx(68));
+            result.sidebar.Width - rpx(28),
+            rpx(66));
         result.learning = RectF(
-            result.sidebar.X + rpx(20),
-            result.sidebar.GetBottom() - rpx(50),
-            result.sidebar.Width - rpx(40),
-            rpx(32));
+            result.sidebar.X + rpx(14),
+            learning_top,
+            result.sidebar.Width - rpx(28),
+            rpx(46));
 
         result.hover = RectF(
-            result.canvas.X + rpx(20),
-            result.canvas.Y + rpx(18),
-            result.canvas.Width - rpx(40),
-            rpx(44));
+            result.canvas.X + rpx(14),
+            result.canvas.Y + rpx(12),
+            result.canvas.Width - rpx(28),
+            rpx(32));
         result.status = RectF(
-            result.canvas.X + rpx(20),
-            result.canvas.GetBottom() - rpx(38),
-            result.canvas.Width - rpx(40),
-            rpx(24));
-        REAL grid_left = result.canvas.X + rpx(58);
-        REAL grid_top = result.hover.GetBottom() + rpx(22);
-        REAL grid_right = result.canvas.GetRight() - rpx(24);
-        REAL grid_bottom = result.status.Y - rpx(16);
+            result.canvas.X + rpx(14),
+            result.canvas.GetBottom() - rpx(58),
+            result.canvas.Width - rpx(28),
+            rpx(46));
+        REAL grid_left = result.canvas.X + rpx(40);
+        REAL grid_top = result.hover.GetBottom() + rpx(12);
+        REAL grid_right = result.canvas.GetRight() - rpx(12);
+        REAL grid_bottom = result.status.Y - rpx(8);
         const auto [columns, rows] = heatmap::grid_dimensions(data_);
         const REAL available_width =
             std::max<REAL>(1, grid_right - grid_left);
@@ -1480,19 +1529,26 @@ private:
             px(250),
             TRUE);
         const REAL segment_gap = rpx(4);
-        const REAL segment_height =
-            (areas.layer_group.Height - segment_gap * 2.0F) / 3.0F;
+        const REAL activity_width = rpx(100);
+        const REAL manual_width = rpx(168);
+        const REAL placement_width = std::max<REAL>(
+            rpx(112),
+            areas.layer_group.Width - activity_width -
+                manual_width - segment_gap * 2.0F);
+        const std::array<REAL, 3> widths{
+            activity_width, manual_width, placement_width};
+        REAL left = areas.layer_group.X;
         HWND controls[3]{activity_, manual_, placement_};
         for (int index = 0; index < 3; ++index) {
             MoveWindow(
                 controls[index],
-                static_cast<int>(areas.layer_group.X) + px(4),
-                static_cast<int>(
-                    areas.layer_group.Y + rpx(4) +
-                    index * (segment_height + segment_gap)),
-                static_cast<int>(areas.layer_group.Width) - px(8),
-                static_cast<int>(segment_height),
+                static_cast<int>(left),
+                static_cast<int>(areas.layer_group.Y),
+                static_cast<int>(widths[static_cast<std::size_t>(index)]),
+                static_cast<int>(areas.layer_group.Height),
                 TRUE);
+            left +=
+                widths[static_cast<std::size_t>(index)] + segment_gap;
         }
         InvalidateRect(window_, nullptr, FALSE);
     }
@@ -1642,31 +1698,35 @@ private:
 
         if (areas.has_projection) {
             fill_round_rect(
-                graphics, areas.projection, rpx(15), color(kWarmSoft));
+                graphics, areas.projection, rpx(11), color(kWarmSoft));
             stroke_round_rect(
                 graphics,
                 areas.projection,
-                rpx(15),
+                rpx(11),
                 with_alpha(kWarm, 80));
         }
         fill_round_rect(
-            graphics, areas.sidebar, rpx(17), color(kSurface));
+            graphics, areas.toolbar, rpx(10), color(kSurface));
         stroke_round_rect(
-            graphics, areas.sidebar, rpx(17), color(kBorder));
+            graphics, areas.toolbar, rpx(10), color(kBorder));
         fill_round_rect(
-            graphics, areas.canvas, rpx(17), color(kSurface));
+            graphics, areas.sidebar, rpx(14), color(kSurface));
         stroke_round_rect(
-            graphics, areas.canvas, rpx(17), color(kBorder));
+            graphics, areas.sidebar, rpx(14), color(kBorder));
         fill_round_rect(
-            graphics, areas.layer_group, rpx(12), color(kBackground));
+            graphics, areas.canvas, rpx(14), color(kSurface));
         stroke_round_rect(
-            graphics, areas.layer_group, rpx(12), color(kBorder));
+            graphics, areas.canvas, rpx(14), color(kBorder));
+        fill_round_rect(
+            graphics, areas.layer_group, rpx(9), color(kBackground));
+        stroke_round_rect(
+            graphics, areas.layer_group, rpx(9), color(kBorder));
 
-        const REAL egg_size = rpx(40);
+        const REAL egg_size = rpx(36);
         draw_egg_mark(
             graphics,
-            RectF(rpx(28), rpx(24), egg_size, egg_size + rpx(4)),
-            rpx(1.6F));
+            RectF(rpx(16), rpx(12), egg_size, egg_size),
+            rpx(1.5F));
 
         if (data_.is_object() && areas.grid.Width > 2 &&
             areas.grid.Height > 2) {
@@ -1868,17 +1928,17 @@ private:
             &unknown,
             RectF(
                 areas.legend.X,
-                areas.legend.GetBottom() + rpx(40),
+                areas.legend.GetBottom() + rpx(27),
                 rpx(16),
-                rpx(12)));
+                rpx(10)));
         graphics.Flush();
 
         RECT title{
-            px(82),
-            px(22),
+            px(62),
+            px(7),
             static_cast<LONG>(static_cast<REAL>(areas.canvas.X) -
                               rpx(8)),
-            px(61)};
+            px(39)};
         draw_text(
             device,
             L"Learning maps",
@@ -1886,11 +1946,11 @@ private:
             kTextGdi,
             heading_font_);
         RECT subtitle{
-            px(84),
-            px(62),
+            px(64),
+            px(37),
             static_cast<LONG>(static_cast<REAL>(areas.canvas.X) +
                               areas.canvas.Width - rpx(20)),
-            px(86)};
+            px(57)};
         draw_text(
             device,
             L"Read-only learning for the selected application and layout.",
@@ -1901,12 +1961,12 @@ private:
 
         if (areas.has_projection) {
             RECT projection{
-                static_cast<LONG>(areas.projection.X + rpx(18)),
-                static_cast<LONG>(areas.projection.Y + rpx(9)),
+                static_cast<LONG>(areas.projection.X + rpx(14)),
+                static_cast<LONG>(areas.projection.Y + rpx(5)),
                 static_cast<LONG>(
-                    areas.projection.GetRight() - rpx(18)),
+                    areas.projection.GetRight() - rpx(14)),
                 static_cast<LONG>(
-                    areas.projection.GetBottom() - rpx(7))};
+                    areas.projection.GetBottom() - rpx(4))};
             draw_text(
                 device,
                 wide(heatmap::projection_notice(data_).value_or(
@@ -1924,10 +1984,11 @@ private:
             static_cast<LONG>(areas.selector_label.GetBottom())};
         draw_text(
             device,
-            L"Application / layout",
+            L"App / layout",
             selector_label,
             kSecondaryGdi,
-            small_font_);
+            small_font_,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         RECT layer_label{
             static_cast<LONG>(areas.layer_label.X),
             static_cast<LONG>(areas.layer_label.Y),
@@ -1938,7 +1999,8 @@ private:
             L"Layer",
             layer_label,
             kSecondaryGdi,
-            small_font_);
+            small_font_,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
         RECT legend_label{
             static_cast<LONG>(areas.legend_label.X),
@@ -1965,14 +2027,14 @@ private:
         }
         RECT low{
             static_cast<LONG>(areas.legend.X),
-            static_cast<LONG>(areas.legend.GetBottom() + rpx(17)),
-            static_cast<LONG>(areas.legend.X + rpx(120)),
-            static_cast<LONG>(areas.legend.GetBottom() + rpx(34))};
+            static_cast<LONG>(areas.legend.GetBottom() + rpx(5)),
+            static_cast<LONG>(areas.legend.X + rpx(94)),
+            static_cast<LONG>(areas.legend.GetBottom() + rpx(21))};
         RECT high{
-            static_cast<LONG>(areas.legend.GetRight() - rpx(120)),
-            static_cast<LONG>(areas.legend.GetBottom() + rpx(17)),
+            static_cast<LONG>(areas.legend.GetRight() - rpx(94)),
+            static_cast<LONG>(areas.legend.GetBottom() + rpx(5)),
             static_cast<LONG>(areas.legend.GetRight()),
-            static_cast<LONG>(areas.legend.GetBottom() + rpx(34))};
+            static_cast<LONG>(areas.legend.GetBottom() + rpx(21))};
         draw_text(
             device,
             low_label,
@@ -1984,20 +2046,32 @@ private:
                   DT_RIGHT | DT_TOP | DT_SINGLELINE);
         RECT unknown_text{
             static_cast<LONG>(areas.legend.X + rpx(23)),
-            static_cast<LONG>(areas.legend.GetBottom() + rpx(38)),
+            static_cast<LONG>(areas.legend.GetBottom() + rpx(24)),
             static_cast<LONG>(areas.legend.GetRight()),
-            static_cast<LONG>(areas.legend.GetBottom() + rpx(58))};
+            static_cast<LONG>(areas.legend.GetBottom() + rpx(42))};
         draw_text(
             device,
-            L"Unknown / unavailable (gray)",
+            L"Unknown / no data (gray)",
             unknown_text,
             kSecondaryGdi,
             small_font_,
-            DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
+            DT_LEFT | DT_TOP | DT_SINGLELINE);
 
-        RECT detail{
+        RECT detail_title{
             static_cast<LONG>(areas.detail.X),
             static_cast<LONG>(areas.detail.Y),
+            static_cast<LONG>(areas.detail.GetRight()),
+            static_cast<LONG>(areas.detail.Y + rpx(18))};
+        draw_text(
+            device,
+            L"What this layer shows",
+            detail_title,
+            kSecondaryGdi,
+            small_font_,
+            DT_LEFT | DT_TOP | DT_SINGLELINE);
+        RECT detail{
+            static_cast<LONG>(areas.detail.X),
+            static_cast<LONG>(areas.detail.Y + rpx(20)),
             static_cast<LONG>(areas.detail.GetRight()),
             static_cast<LONG>(areas.detail.GetBottom())};
         draw_text(
@@ -2006,7 +2080,7 @@ private:
             detail,
             kSecondaryGdi,
             small_font_,
-            DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
+            DT_LEFT | DT_TOP | DT_WORDBREAK);
 
         RECT outlines_title{
             static_cast<LONG>(areas.outlines.X),
@@ -2146,8 +2220,7 @@ private:
             status_rect,
             status_color,
             small_font_,
-            DT_LEFT | DT_VCENTER | DT_SINGLELINE |
-                DT_END_ELLIPSIS);
+            DT_LEFT | DT_TOP | DT_WORDBREAK);
 
         if (data_.is_object() &&
             heatmap::profile_choices(data_).empty()) {
@@ -2156,9 +2229,9 @@ private:
             const RectF overlay{
                 areas.grid.X +
                     (areas.grid.Width - overlay_width) / 2.0F,
-                areas.grid.Y + areas.grid.Height * 0.31F,
+                areas.grid.Y + areas.grid.Height * 0.24F,
                 overlay_width,
-                rpx(106)};
+                rpx(128)};
             Graphics overlay_graphics(device);
             fill_round_rect(
                 overlay_graphics,
@@ -2322,8 +2395,8 @@ private:
         }
         case WM_GETMINMAXINFO: {
             auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
-            info->ptMinTrackSize.x = px(960);
-            info->ptMinTrackSize.y = px(780);
+            info->ptMinTrackSize.x = px(860);
+            info->ptMinTrackSize.y = px(620);
             return 0;
         }
         case WM_MEASUREITEM: {
@@ -2675,8 +2748,8 @@ bool run_platform_ui(AdaptiveApplication& application) {
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            MulDiv(780, static_cast<int>(dpi), 96),
-            MulDiv(560, static_cast<int>(dpi), 96),
+            MulDiv(600, static_cast<int>(dpi), 96),
+            MulDiv(360, static_cast<int>(dpi), 96),
             nullptr,
             nullptr,
             GetModuleHandleW(nullptr),
@@ -2694,6 +2767,12 @@ bool run_platform_ui(AdaptiveApplication& application) {
         UpdateWindow(window);
         MSG message{};
         while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+            const HWND root =
+                GetAncestor(message.hwnd, GA_ROOT);
+            if (root != nullptr &&
+                IsDialogMessageW(root, &message)) {
+                continue;
+            }
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
