@@ -11,6 +11,7 @@
 #include <dwmapi.h>
 #include <objidl.h>
 #include <gdiplus.h>
+#include <shellapi.h>
 #include <uxtheme.h>
 #include <windowsx.h>
 
@@ -35,6 +36,7 @@ constexpr wchar_t kHeatmapClass[] = L"DuckEggsLearningMaps";
 constexpr int kPauseButton = 1001;
 constexpr int kLearningButton = 1002;
 constexpr int kExitButton = 1003;
+constexpr int kDonateButton = 1004;
 constexpr int kProfileCombo = 1101;
 constexpr int kActivityLayer = 1111;
 constexpr int kManualLayer = 1112;
@@ -69,6 +71,14 @@ constexpr ARGB kForegroundOutline = 0xffb594ff;
 constexpr ARGB kPipOutline = 0xfff0a15c;
 constexpr ARGB kRecommendationOutline = 0xff73dcc5;
 constexpr ARGB kFootprintOutline = 0xffe8eef5;
+
+constexpr wchar_t kDonationUrl[] =
+    L"https://www.paypal.com/donate/?business=deffie83%40gmail.com";
+constexpr wchar_t kDonationRecipient[] = L"deffie83@gmail.com";
+constexpr wchar_t kMainMotto[] =
+    L"I was walking past a farm and a sign said, \u201cDuck, eggs.\u201d\n"
+    L"I thought, \u201cThat\u2019s an unnecessary comma\u2026\"\n"
+    L"\u2013 and then it hit me.";
 
 std::wstring wide(std::string_view value) {
     if (value.empty()) {
@@ -554,7 +564,8 @@ private:
         small_font_ = make_font(dpi_, 12, FW_NORMAL);
         badge_font_ = make_font(dpi_, 12, FW_SEMIBOLD);
         for (HWND button :
-             {pause_button_, learning_button_, exit_button_}) {
+             {pause_button_, learning_button_, donate_button_,
+              exit_button_}) {
             if (button != nullptr) {
                 SendMessageW(
                     button,
@@ -616,6 +627,7 @@ private:
         pause_button_ = make_button(kPauseButton, L"Resume");
         learning_button_ =
             make_button(kLearningButton, L"Learning maps");
+        donate_button_ = make_button(kDonateButton, L"Donate");
         exit_button_ = make_button(kExitButton, L"Exit");
         background_brush_ = CreateSolidBrush(kBackgroundGdi);
         layout_controls();
@@ -649,6 +661,15 @@ private:
             height,
             TRUE);
         right -= exit_width + gap;
+        const int donate_width = px(86);
+        MoveWindow(
+            donate_button_,
+            right - donate_width,
+            top,
+            donate_width,
+            height,
+            TRUE);
+        right -= donate_width + gap;
         const int learning_width = px(128);
         MoveWindow(
             learning_button_,
@@ -750,6 +771,29 @@ private:
 
     void open_heatmap();
 
+    void open_donation() const {
+        const HINSTANCE result = ShellExecuteW(
+            window_,
+            L"open",
+            kDonationUrl,
+            nullptr,
+            nullptr,
+            SW_SHOWNORMAL);
+        if (reinterpret_cast<INT_PTR>(result) <= 32) {
+            const std::wstring message =
+                L"DuckEggs could not open its PayPal donation page in the "
+                L"default browser.\n\nRecipient: " +
+                std::wstring(kDonationRecipient) +
+                L"\nLink: " + std::wstring(kDonationUrl) +
+                L"\n\nYou can copy the link into a browser.";
+            MessageBoxW(
+                window_,
+                message.c_str(),
+                L"DuckEggs donation",
+                MB_OK | MB_ICONERROR);
+        }
+    }
+
     void paint_main(HDC device) {
         RECT client{};
         GetClientRect(window_, &client);
@@ -784,6 +828,26 @@ private:
 
         const REAL footer_top =
             static_cast<REAL>(client.bottom) - rpx(14) - rpx(34);
+        const REAL motto_width =
+            std::max<REAL>(0, client.right - margin * 2.0F);
+        const int motto_text_width =
+            std::max(1, static_cast<int>(motto_width) - px(24));
+        const int motto_text_height = wrapped_text_height(
+            device,
+            kMainMotto,
+            motto_text_width,
+            small_font_,
+            DT_CENTER | DT_TOP | DT_WORDBREAK);
+        const REAL motto_height = std::clamp(
+            static_cast<REAL>(motto_text_height) + rpx(10),
+            rpx(50),
+            rpx(65));
+        const RectF motto{
+            margin,
+            footer_top - rpx(6) - motto_height,
+            motto_width,
+            motto_height};
+        const REAL metric_bottom = motto.Y - rpx(6);
         REAL metric_top = rpx(90);
         if (!view_.error.empty()) {
             const REAL banner_top = rpx(61);
@@ -799,13 +863,17 @@ private:
                 text_width_available,
                 small_font_,
                 DT_LEFT | DT_TOP | DT_WORDBREAK);
-            const REAL maximum_height = std::clamp(
-                footer_top - banner_top - rpx(8) - rpx(104),
-                rpx(38),
-                rpx(90));
+            const REAL maximum_height = std::min(
+                rpx(90),
+                std::max<REAL>(
+                    0,
+                    metric_bottom - rpx(72) - rpx(6) -
+                        banner_top));
+            const REAL minimum_height =
+                std::min(rpx(38), maximum_height);
             const REAL banner_height = std::clamp(
                 static_cast<REAL>(measured_height) + rpx(16),
-                rpx(38),
+                minimum_height,
                 maximum_height);
             const RectF banner{
                 margin,
@@ -832,10 +900,9 @@ private:
                 kErrorGdi,
                 small_font_,
                 DT_LEFT | DT_TOP | DT_WORDBREAK);
-            metric_top = banner.GetBottom() + rpx(8);
+            metric_top = banner.GetBottom() + rpx(6);
         }
 
-        const REAL metric_bottom = footer_top - rpx(12);
         const REAL metric_gap = rpx(8);
         const REAL metric_width =
             std::max<REAL>(
@@ -844,7 +911,7 @@ private:
                  metric_gap * 2.0F) /
                     3.0F);
         const REAL metric_height =
-            std::max<REAL>(rpx(96), metric_bottom - metric_top);
+            std::max<REAL>(0, metric_bottom - metric_top);
         for (int index = 0; index < 3; ++index) {
             const RectF metric{
                 margin + index * (metric_width + metric_gap),
@@ -862,10 +929,14 @@ private:
             graphics.FillEllipse(
                 &dot,
                 metric.X + rpx(11),
-                metric.Y + rpx(12),
-                rpx(7),
-                rpx(7));
+                metric.Y + rpx(7),
+                rpx(6),
+                rpx(6));
         }
+        fill_round_rect(
+            graphics, motto, rpx(10), color(kSurface));
+        stroke_round_rect(
+            graphics, motto, rpx(10), color(kBorder));
         graphics.Flush();
 
         RECT title{
@@ -950,9 +1021,9 @@ private:
                 margin + index * (metric_width + metric_gap);
             RECT label{
                 static_cast<LONG>(left + rpx(24)),
-                static_cast<LONG>(metric_top + rpx(8)),
+                static_cast<LONG>(metric_top + rpx(3)),
                 static_cast<LONG>(left + metric_width - rpx(10)),
-                static_cast<LONG>(metric_top + rpx(25))};
+                static_cast<LONG>(metric_top + rpx(17))};
             draw_text(
                 device,
                 labels[static_cast<std::size_t>(index)],
@@ -962,9 +1033,9 @@ private:
                 DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
             RECT value{
                 static_cast<LONG>(left + rpx(11)),
-                static_cast<LONG>(metric_top + rpx(29)),
+                static_cast<LONG>(metric_top + rpx(18)),
                 static_cast<LONG>(left + metric_width - rpx(10)),
-                static_cast<LONG>(metric_top + rpx(55))};
+                static_cast<LONG>(metric_top + rpx(39))};
             draw_text(
                 device,
                 values[static_cast<std::size_t>(index)],
@@ -974,9 +1045,9 @@ private:
                 DT_LEFT | DT_TOP | DT_SINGLELINE);
             RECT detail{
                 static_cast<LONG>(left + rpx(11)),
-                static_cast<LONG>(metric_top + rpx(58)),
+                static_cast<LONG>(metric_top + rpx(39)),
                 static_cast<LONG>(left + metric_width - rpx(10)),
-                static_cast<LONG>(metric_top + metric_height - rpx(8))};
+                static_cast<LONG>(metric_top + metric_height - rpx(3))};
             draw_text(
                 device,
                 details[static_cast<std::size_t>(index)],
@@ -985,6 +1056,18 @@ private:
                 small_font_,
                 DT_LEFT | DT_TOP | DT_WORDBREAK);
         }
+        RECT motto_text{
+            static_cast<LONG>(motto.X + rpx(12)),
+            static_cast<LONG>(motto.Y + rpx(5)),
+            static_cast<LONG>(motto.GetRight() - rpx(12)),
+            static_cast<LONG>(motto.GetBottom() - rpx(3))};
+        draw_text(
+            device,
+            kMainMotto,
+            motto_text,
+            kSecondaryGdi,
+            small_font_,
+            DT_CENTER | DT_TOP | DT_WORDBREAK);
     }
 
     void draw_button(const DRAWITEMSTRUCT& item) {
@@ -1018,6 +1101,11 @@ private:
         } else if (item.CtlID == kLearningButton) {
             fill = hovered ? 0xff2a3544 : kSurfaceRaised;
             border = hovered ? kAccent : kBorderStrong;
+        } else if (item.CtlID == kDonateButton) {
+            fill = hovered ? 0xff342f27 : kSurface;
+            border = hovered ? kWarm : kBorderStrong;
+            foreground = kWarm;
+            foreground_gdi = kWarmGdi;
         } else if (item.CtlID == kExitButton) {
             fill = hovered ? kSurfaceRaised : kSurface;
             border = hovered ? kBorderStrong : kSurface;
@@ -1108,6 +1196,11 @@ private:
             case kLearningButton:
                 open_heatmap();
                 return 0;
+            case kDonateButton:
+                if (HIWORD(wparam) == BN_CLICKED) {
+                    open_donation();
+                }
+                return 0;
             case kExitButton:
                 application_.request_quit();
                 DestroyWindow(window_);
@@ -1192,6 +1285,7 @@ private:
     HeatmapWindow* heatmap_{};
     HWND pause_button_{};
     HWND learning_button_{};
+    HWND donate_button_{};
     HWND exit_button_{};
     HFONT heading_font_{};
     HFONT title_font_{};

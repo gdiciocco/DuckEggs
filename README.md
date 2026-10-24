@@ -1,218 +1,83 @@
-# DuckEggs 0.4.0-preview.4
+# DuckEggs
 
-DuckEggs is a native C++20 port of the Schiva adaptive Picture-in-Picture
-experience. It learns where Chrome's native PiP window fits your work and moves
-it only when the shared adaptive model finds a safe destination.
+<img src="resources/duckeggs-logo-256.png" alt="DuckEggs logo" width="256">
 
-The product interface is entirely in English. Internal `schiva` namespaces and
-header paths remain frozen for compatibility with the ported core.
+**Keeps floating Chrome videos out of your way.**
 
-Windows is the implemented native backend. Linux and macOS builds include the
-portable core, command-line actions and tests, but report an explicit
-unsupported-native error. DuckEggs does not bundle or start Python, Qt, a
-browser, a web view, a server, a scripting runtime, an interpreter or
-telemetry.
+DuckEggs is a small Windows app that moves Chrome's picture-in-picture window
+when it gets in the way of your work. It learns where you prefer the window in
+different apps and moves it smoothly when there is a better spot.
 
-## Interface
+[Download DuckEggs 0.4.0-alpha.1 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.1/DuckEggs-0.4.0-alpha.1-windows-x64.zip)
 
-The compact DuckEggs window uses a dark neutral interface with teal accents,
-Segoe UI typography, DPI-scaled metrics and native keyboard controls. It starts
-paused and shows a clear Paused/Watching/Moving/No PiP status, Chrome PiP
-availability, learning updates, visual-signal state, and the primary
-Resume/Pause action. Learning maps and Exit are secondary actions.
+This is an early alpha. See the
+[v0.4.0-alpha.1 pre-release](https://github.com/gdiciocco/DuckEggs/releases/tag/v0.4.0-alpha.1)
+for release details.
 
-The brand mark is the approved DuckEggs raster artwork. Its checked-in master
-PNG is authoritative; the native header renders an embedded 256 px copy (with
-a 128 px fallback) without filesystem lookup. The ICO and preview images are
-deterministic Cairo resamples of the complete master canvas, preserving its
-transparent margins and brush, expression, shell and yolk details. No SVG is
-used as a reconstructed vector source.
+## What it does
 
-The Learning maps window is a read-only local viewer with:
+- Moves the floating video smoothly instead of making it jump around.
+- Leaves your mouse usable while the video moves. Moving the pointer over the
+  PiP controls stops movement.
+- Remembers your layout preferences for each app, locally on your PC.
+- Includes visible Learning maps so you can see what DuckEggs has learned.
+- Avoids unnecessary moves during broad page updates, such as scrolling.
 
-- An application/layout selector that preserves the selected profile while
-  snapshots refresh.
-- Activity, Manual preference and Placement layers.
-- A relative-value legend and gray unknown/unavailable cells.
-- Full-PiP footprint hover, plus foreground, current-PiP and recommendation
-  outlines.
-- Explicit cold-start and projected-map notices.
+## Requirements
 
-The viewer requests a detached snapshot about once per second while open.
-Requests are deferred while DuckEggs is moving the PiP. Refreshes do not focus
-or activate the viewer.
+DuckEggs 0.4.0-alpha.1 currently supports Windows 10 or Windows 11, 64-bit,
+with Google Chrome. It uses Chrome's built-in picture-in-picture window.
 
-## Safety model
+There is no installer, account, browser extension, or additional runtime to
+set up.
 
-- Only a visible, top-level `chrome.exe` window with class
-  `Chrome_WidgetWin_1` and the complete localized PiP title is a candidate.
-  Partial Chrome titles fail closed.
-- Exactly one candidate is required. Multiple PiP windows are not chosen
-  arbitrarily.
-- Window identity includes the handle, process ID, process creation time,
-  class, executable basename and exact title. Full identity validation is
-  repeated throughout a movement.
-- A movement target is revalidated for geometry, cursor and held buttons
-  immediately before it is applied. DuckEggs never activates, resizes,
-  reorders or closes a user window.
-- The pointer must remain outside PiP controls and the native motion corridor.
-  The destination must fit the monitor work area.
-- DuckEggs installs no keyboard hooks and does not log key contents.
-- Startup is paused. `--resume` is the only explicit active start.
-- Resume fails safely while Python's original
-  `Local\SchivaAdaptive.Instance.v1` mutex is active. DuckEggs never signals,
-  stops or modifies the Python application or its database.
-- DuckEggs uses the isolated `Local\DuckEggs.Instance.v1` mutex and
-  `Local\DuckEggs.Stop.v1` event. `--stop` cannot reach Python.
+## Quick start
 
-Capture is a bounded one-worker latest-request/latest-result pipeline. Sampling
-is capped at 2 Hz and uses one in-memory 64 by 36 grayscale frame at a time.
-Stale frames are invalidated after pause, input, motion, context or geometry
-changes. Pixels and cursor traces are not persisted.
+1. Download the ZIP file.
+2. Extract it to a folder.
+3. Run `DuckEggs.exe`.
+4. Open a video in Chrome and turn on picture-in-picture.
+5. Click **Resume** in DuckEggs.
 
-Visual change detection keeps the existing tile-mean path for localized
-activity. It also compares pixels within comparable cells: a cell is counted
-only when it is outside the PiP, DuckEggs and other capture masks in both
-frames, and it changes when at least 25% of its pixels differ by 12 gray levels
-or more. At least 60% of the 16 by 9 cells (and at least eight cells) must be
-comparable. A frame is broadly active when at least 50% of comparable cells
-change, or when at least 35% change in two fresh successive captures and
-changes span at least half the grid's rows and columns.
+DuckEggs starts paused. Close any other DuckEggs versions before starting it,
+and use only one Chrome picture-in-picture window at a time.
 
-Broad activity suppresses only visual-evidence movement, clears outstanding
-visual risk, and latches for one second. Fresh broad captures extend the latch;
-time without broad captures does not. Localized updates can become actionable
-again after the latch expires. Cursor proximity and a genuine caret conflict
-remain independent triggers, and an actual manual correction can still cancel
-movement and supply its negative reward. The controller reports the latch as
-`visual_broad_update` in its status. Pixels remain memory-only.
+## Your data
 
-## Adaptive runtime
+Learning data and preferences stay on your PC in
+`%LOCALAPPDATA%\DuckEggs`. DuckEggs does not store screenshots and does not
+include analytics.
 
-The worker thread exclusively owns native observation, the frozen core,
-SQLite, movement and insight queries. The UI only receives detached JSON
-snapshots. The scheduler targets 120 Hz during committed motion, 60 Hz while
-idle and 15 Hz while paused with missed deadlines skipped. It does not change
-the system timer resolution or use a busy loop.
+To reset DuckEggs, exit the app and delete that folder.
 
-The frozen core owns the shared 12-feature model, 24 by 14 activity/manual
-maps, decay, delayed measured/censored feedback, full-footprint scoring, the
-65% vacated-area goal with a maximum-safe fallback, interaction holds, pause
-behavior and trajectory planning. Native code supplies observations and
-applies only the safe target returned by the core.
+## Alpha feedback
 
-## Command line
+This alpha may have rough edges and bugs. If something does not work as
+expected, please
+[open a GitHub issue](https://github.com/gdiciocco/DuckEggs/issues).
 
-The Windows executable is a GUI-subsystem application, so opening DuckEggs
-normally does not create an unwanted console. CLI actions attach to an existing
-terminal only when needed; redirected stdout and stderr remain available.
-Windows command-line arguments are read through the Unicode command line and
-converted safely to UTF-8 only at the CLI parsing boundary.
+The Windows build in this alpha is unsigned.
 
-```text
-DuckEggs.exe --help
-DuckEggs.exe --version
-DuckEggs.exe --probe
-DuckEggs.exe --status [--data-dir PATH]
-DuckEggs.exe --resume
-DuckEggs.exe --start-paused --no-visual
-DuckEggs.exe --observe-only --no-gui --duration 10
-DuckEggs.exe --stop
-```
+## Donate
 
-`--help`, `--version`, `--status`, `--probe` and `--import-python` exit without
-starting the runtime. `--probe` performs no capture and creates no data. There
-is intentionally no `--mode`.
+Donations are voluntary, and there is no suggested amount. DuckEggs does not
+make network requests. If you choose the donation link, your browser opens
+PayPal.
 
-`--start-paused` and `--resume` are mutually exclusive. The default is paused,
-including `--no-gui` operation unless `--resume` is present.
+[Donate via PayPal](https://www.paypal.com/donate/?business=deffie83%40gmail.com)
 
-## Python data import
+PayPal recipient: `deffie83@gmail.com`.
 
-Import is an explicit one-time copy into a separate, empty DuckEggs data
-directory:
+## Why “DuckEggs”?
 
-```text
-DuckEggs.exe --import-python "C:\path\python-backup.sqlite3" --data-dir "C:\Temp\DuckEggsImport"
-```
+> I was walking past a farm and a sign said, “Duck, eggs.”<br>
+> I thought, “That’s an unnecessary comma…"<br>
+> – and then it hit me.
 
-The Python source is opened read-only, checked for schema version 1, required
-tables and integrity, then copied with SQLite's backup API. The destination
-must be explicitly supplied and empty. Existing DuckEggs learning data is
-never overwritten. Import exits before the native backend starts.
+## License
 
-Default isolated data locations:
+DuckEggs is available under the [MIT License](LICENSE).
 
-- Windows: `%LOCALAPPDATA%\DuckEggs`
-- Linux: `$XDG_DATA_HOME/duckeggs` or `~/.local/share/duckeggs`
-- macOS: `~/Library/Application Support/DuckEggs`
-
-`status.json` contains bounded aggregate state only. Window titles, URLs,
-cursor coordinates, raw frames and key contents are not persisted.
-
-## Launching
-
-- `Start-DuckEggs.cmd` opens the GUI paused.
-- `Stop-DuckEggs.cmd` sends a stop request to DuckEggs only.
-
-## Build
-
-Requirements are CMake 3.20 or newer, a C++20 compiler and the pinned offline
-vendor files:
-
-```text
-vendor/sqlite/sqlite3.c
-vendor/sqlite/sqlite3.h
-vendor/nlohmann/json.hpp
-```
-
-The build performs no network fetch and has no external runtime DLL
-dependency. MSVC x64 builds use the static `/MT` runtime for every target.
-
-```bat
-cmake --preset windows-msvc
-cmake --build --preset windows-release --parallel
-ctest --preset windows-release
-cd out\build\windows-msvc
-cpack -C Release
-```
-
-The portable artifact is
-`DuckEggs-0.4.0-preview.4-windows-x64.zip`. It contains the executable,
-launchers, documentation, and the complete SQLite and nlohmann/json license
-and provenance files under `licenses/`.
-
-Python is optional and is used only in development/CI to compare the parity
-runner's JSON with `tests/fixtures/core-parity.json`. It is not a DuckEggs
-runtime dependency.
-
-## Tests and verification boundary
-
-`test_platform` uses synthetic data for strict target identity, geometry,
-scheduling, status output, capture mailbox behavior, heatmap helpers and a
-SQLite backup round trip. It does not capture a real desktop or move a window.
-The core tests cover model, storage, controller and visual behavior.
-`core_parity` compares the complete C++ fixture output against the pinned
-Python reference when Python is available at configure time.
-
-The Windows CI job builds and runs the release tests and produces the portable
-ZIP. The Linux CI job builds and runs the portable core and unsupported-native
-tests. Linux and macOS do not claim a desktop adapter.
-
-Source inspection and portable tests are not hardware validation. MSVC
-compilation, dependency inspection, package hashing, and actual desktop/PiP
-smoke tests remain coordinator verification steps. No live browser-animation
-or real window-movement validation is claimed here.
-
-## Known limitations
-
-- Windows is the only native adapter.
-- Caret/UI Automation acquisition is not implemented.
-- GDI capture cannot inspect occluded content, protected video or the area
-  beneath the PiP. A denied or black capture is treated as unavailable
-  evidence.
-- Visual reading evidence is uncertain and is not proof that a person is
-  reading.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md), [THIRD_PARTY.md](THIRD_PARTY.md), and
-[LICENSE](LICENSE).
+Interested in the code or building DuckEggs? See the
+[developer and build notes](docs/DEVELOPING.md) or
+[contribution guidelines](CONTRIBUTING.md).
