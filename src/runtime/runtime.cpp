@@ -1219,6 +1219,8 @@ private:
     }
 
     void open_manual_picker() {
+        // A queued close may have cleared the caller-side session latch.
+        manual_session_.store(true);
         if (loop_ == nullptr || backend_ == nullptr) {
             return;
         }

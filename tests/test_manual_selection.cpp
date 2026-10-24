@@ -488,12 +488,76 @@ void test_runtime_manual_commands() {
     CHECK(persisted.find("player.exe") == std::string::npos);
 }
 
+void test_manual_picker_reopen_keeps_session_latch() {
+    TemporaryDirectory temporary;
+    auto state = std::make_shared<FakeState>();
+    schiva::RuntimeOptions options;
+    options.data_dir = temporary.path();
+    options.no_gui = true;
+    options.no_visual = true;
+    options.start_paused = true;
+    options.backend_factory = [state] {
+        return std::make_unique<FakeBackend>(state);
+    };
+    options.signals_factory = [] {
+        return std::make_unique<FakeSignals>();
+    };
+
+    schiva::AdaptiveApplication application(options);
+    application.request_manual_picker();
+    application.request_manual_picker_closed();
+    application.request_manual_picker();
+
+    std::thread runner([&application] {
+        (void)application.run();
+    });
+    CHECK(wait_until([&application] {
+        const schiva::Json manual = application.manual_snapshot();
+        return manual["picker_open"].get<bool>() &&
+               manual["windows"].size() == 2;
+    }));
+    CHECK(application.snapshot()["paused"].get<bool>());
+
+    const int manual_revision =
+        application.manual_snapshot()["revision"].get<int>();
+    application.request_pause();
+    application.request_manual_refresh();
+    CHECK(wait_until([&application, manual_revision] {
+        return application.manual_snapshot()["revision"].get<int>() >
+               manual_revision;
+    }));
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK(state->paused);
+    }
+    CHECK(application.snapshot()["paused"].get<bool>());
+
+    application.request_manual_picker_closed();
+    CHECK(wait_until([&application] {
+        return !application.manual_snapshot()["picker_open"].get<bool>();
+    }));
+    application.request_pause();
+    CHECK(wait_until([&application] {
+        return !application.snapshot()["paused"].get<bool>();
+    }));
+
+    application.request_quit();
+    if (runner.joinable()) {
+        runner.join();
+    }
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK(!state->owner_violation);
+    }
+}
+
 }  // namespace
 
 int main() {
     test_identity_predicate();
     test_default_backend_contract();
     test_runtime_manual_commands();
+    test_manual_picker_reopen_keeps_session_latch();
     if (failures != 0) {
         std::cerr << failures << " manual-selection checks failed\n";
         return 1;
