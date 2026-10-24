@@ -1145,7 +1145,38 @@ private:
         case WM_PAINT: {
             PAINTSTRUCT paint{};
             HDC target = BeginPaint(window_, &paint);
-            paint_main(target);
+            if (target != nullptr) {
+                RECT client{};
+                GetClientRect(window_, &client);
+                if (client.right > 0 && client.bottom > 0) {
+                    HDC buffer = CreateCompatibleDC(target);
+                    if (buffer != nullptr) {
+                        HBITMAP bitmap = CreateCompatibleBitmap(
+                            target, client.right, client.bottom);
+                        if (bitmap != nullptr) {
+                            const HGDIOBJ previous =
+                                SelectObject(buffer, bitmap);
+                            if (previous != nullptr &&
+                                previous != HGDI_ERROR) {
+                                paint_main(buffer);
+                                BitBlt(
+                                    target,
+                                    0,
+                                    0,
+                                    client.right,
+                                    client.bottom,
+                                    buffer,
+                                    0,
+                                    0,
+                                    SRCCOPY);
+                                SelectObject(buffer, previous);
+                            }
+                            DeleteObject(bitmap);
+                        }
+                        DeleteDC(buffer);
+                    }
+                }
+            }
             EndPaint(window_, &paint);
             return 0;
         }
