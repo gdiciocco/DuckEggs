@@ -95,7 +95,7 @@ inline bool decode_mark_resource(int resource_id) {
         stream->Release();
         return false;
     }
-    if (bitmap->GetLastStatus() != Gdiplus::Ok) {
+    if (bitmap == nullptr || bitmap->GetLastStatus() != Gdiplus::Ok) {
         delete bitmap;
         stream->Release();
         return false;
