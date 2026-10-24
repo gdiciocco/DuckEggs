@@ -2550,6 +2550,9 @@ void ControlPanel::open_heatmap() {
     try {
         heatmap_ = new HeatmapWindow(
             application_, window_, *this);
+        ShowWindow(heatmap_->window(), SW_SHOWNORMAL);
+        UpdateWindow(heatmap_->window());
+        SetForegroundWindow(heatmap_->window());
     } catch (const std::exception& exception) {
         MessageBoxW(
             window_,
