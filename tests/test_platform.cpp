@@ -152,7 +152,7 @@ void test_motion_geometry_guard() {
 }
 
 void test_scheduler_and_status() {
-    CHECK(schiva::kVersion == "0.4.0-preview.1");
+    CHECK(schiva::kVersion == "0.4.0-preview.2");
     CHECK(std::abs(schiva::target_period(true, false) - 1.0 / 120.0) <
           1.0e-12);
     CHECK(std::abs(schiva::target_period(false, false) - 1.0 / 60.0) <
