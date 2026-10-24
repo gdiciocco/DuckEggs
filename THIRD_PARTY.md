@@ -68,4 +68,25 @@ SOFTWARE.
 The same complete license and provenance files are installed in the portable
 package's `licenses/` directory.
 
+## Chromium PiP title data
+
+- Files: `design/chromium-pip-titles.json`,
+  `src/platform/chromium_pip_titles.hpp`
+- Origin:
+  <https://chromium.googlesource.com/chromium/src/+/41020d875c4518f25b5b27a76c7d418235a50f31/chrome/app/resources/generated_resources_%7Blocale%7D.xtb>
+- Chromium symbol: `IDS_PICTURE_IN_PICTURE_TITLE_TEXT`
+- GRIT message ID: `7750228210027921155`
+- Frozen dataset SHA256:
+  `320691b61bb7e156f414a8b345904bc025756c4a7fbbc553e9ecf7b4bff7532c`
+
+The dataset records the exact English source text and titles for 81 locales,
+the source commit, and a SHA256 for each locale's XTB resource. Unicode is
+preserved as published by Chromium. The strings are used only to identify
+Chrome's Picture-in-Picture window, with the compatibility rules documented in
+[docs/DEVELOPING.md](docs/DEVELOPING.md).
+
+Chromium is distributed under the BSD 3-Clause license. The complete license
+text is installed in the portable package as
+`licenses/LICENSE.Chromium.BSD`.
+
 DuckEggs itself is licensed under the MIT license in [LICENSE](LICENSE).

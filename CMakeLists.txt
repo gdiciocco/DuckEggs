@@ -231,6 +231,7 @@ install(
         vendor/PROVENANCE.txt
         vendor/sqlite/LICENSE.SQLite.txt
         vendor/nlohmann/LICENSE.nlohmann-json.MIT
+        vendor/LICENSE.Chromium.BSD
     DESTINATION licenses)
 install(FILES docs/DEVELOPING.md DESTINATION docs)
 install(

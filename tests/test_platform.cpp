@@ -2,10 +2,12 @@
 #include "schiva/platform.hpp"
 #include "schiva/runtime.hpp"
 
+#include <nlohmann/json.hpp>
 #include <sqlite3.h>
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -101,6 +103,152 @@ void test_title_and_window_identity() {
     CHECK_THROWS(schiva::PlatformError, schiva::parse_window_id("hwnd:0"));
 }
 
+std::filesystem::path repository_root() {
+    return std::filesystem::absolute(
+               std::filesystem::path(__FILE__))
+               .parent_path()
+               .parent_path();
+}
+
+std::wstring utf8_to_wide(std::string_view input) {
+    std::wstring result;
+    result.reserve(input.size());
+    for (std::size_t index = 0; index < input.size();) {
+        const auto first =
+            static_cast<unsigned char>(input[index]);
+        std::uint32_t codepoint = 0;
+        std::size_t length = 0;
+        if (first <= 0x7F) {
+            codepoint = first;
+            length = 1;
+        } else if (first >= 0xC2 && first <= 0xDF) {
+            codepoint = first & 0x1F;
+            length = 2;
+        } else if (first >= 0xE0 && first <= 0xEF) {
+            codepoint = first & 0x0F;
+            length = 3;
+        } else if (first >= 0xF0 && first <= 0xF4) {
+            codepoint = first & 0x07;
+            length = 4;
+        } else {
+            throw std::invalid_argument("invalid UTF-8 lead byte");
+        }
+        if (input.size() - index < length) {
+            throw std::invalid_argument("truncated UTF-8 sequence");
+        }
+        for (std::size_t offset = 1; offset < length; ++offset) {
+            const auto continuation = static_cast<unsigned char>(
+                input[index + offset]);
+            if ((continuation & 0xC0) != 0x80) {
+                throw std::invalid_argument(
+                    "invalid UTF-8 continuation byte");
+            }
+            codepoint =
+                (codepoint << 6) | (continuation & 0x3F);
+        }
+        if ((length == 3 && codepoint < 0x800) ||
+            (length == 4 && codepoint < 0x10000) ||
+            (codepoint >= 0xD800 && codepoint <= 0xDFFF) ||
+            codepoint > 0x10FFFF) {
+            throw std::invalid_argument("invalid UTF-8 code point");
+        }
+        if constexpr (sizeof(wchar_t) == 2) {
+            if (codepoint <= 0xFFFF) {
+                result.push_back(static_cast<wchar_t>(codepoint));
+            } else {
+                codepoint -= 0x10000;
+                result.push_back(
+                    static_cast<wchar_t>(0xD800 + (codepoint >> 10)));
+                result.push_back(
+                    static_cast<wchar_t>(0xDC00 + (codepoint & 0x3FF)));
+            }
+        } else {
+            result.push_back(static_cast<wchar_t>(codepoint));
+        }
+        index += length;
+    }
+    return result;
+}
+
+void test_official_chromium_titles() {
+    const auto dataset_path =
+        repository_root() / "design" / "chromium-pip-titles.json";
+    std::ifstream input(dataset_path, std::ios::binary);
+    CHECK(input.is_open());
+    if (!input.is_open()) {
+        return;
+    }
+    const nlohmann::json dataset = nlohmann::json::parse(input);
+    CHECK(dataset.at("symbol") ==
+          "IDS_PICTURE_IN_PICTURE_TITLE_TEXT");
+    CHECK(dataset.at("message_id") == "7750228210027921155");
+    CHECK(dataset.at("source_sha") ==
+          "41020d875c4518f25b5b27a76c7d418235a50f31");
+    const auto& titles = dataset.at("titles");
+    CHECK(titles.size() == 81);
+    CHECK(dataset.at("locale_count").at("available") == 81);
+    CHECK(dataset.at("locale_count").at("found") == 81);
+    CHECK(dataset.at("locale_count").at("missing").empty());
+
+    const auto english =
+        utf8_to_wide(dataset.at("source_text").get<std::string>());
+    CHECK(english == L"Picture in picture");
+    CHECK(schiva::title_matches(english));
+
+    std::size_t checked_locales = 0;
+    for (const auto& [locale, value] : titles.items()) {
+        (void)locale;
+        const std::wstring title =
+            utf8_to_wide(value.get<std::string>());
+        CHECK(schiva::title_matches(title));
+        CHECK(schiva::is_target_window(
+            L"Chrome_WidgetWin_1", title, L"chrome.exe"));
+        ++checked_locales;
+    }
+    CHECK(checked_locales == 81);
+
+    const std::wstring legacy_italian =
+        L"Immagine nell\u2019immagine";
+    CHECK(schiva::title_matches(legacy_italian));
+    CHECK(schiva::is_target_window(
+        L"Chrome_WidgetWin_1", legacy_italian, L"chrome.exe"));
+
+    const auto czech =
+        utf8_to_wide(titles.at("cs").get<std::string>());
+    CHECK(czech.find(L'\u00A0') != std::wstring::npos);
+    CHECK(schiva::title_matches(czech));
+    const auto khmer =
+        utf8_to_wide(titles.at("km").get<std::string>());
+    CHECK(khmer.back() == L'\u200B');
+    CHECK(schiva::title_matches(khmer));
+
+    CHECK(schiva::title_matches(L"PICTURE__IN\tPICTURE"));
+    CHECK(schiva::title_matches(L"picture-in-picture"));
+    CHECK(schiva::title_matches(L"  Picture in picture  "));
+
+    const std::wstring japanese =
+        utf8_to_wide(titles.at("ja").get<std::string>());
+    CHECK(!schiva::title_matches(L"Prefix " + japanese));
+    CHECK(!schiva::title_matches(japanese + L" suffix"));
+    CHECK(!schiva::title_matches(
+        L"\u202EPicture in picture\u202C"));
+    CHECK(!schiva::title_matches(
+        L"Picture in picture\U0001F600"));
+
+    CHECK(!schiva::is_target_window(
+        L"Chrome_WidgetWin_1", english, L"msedge.exe"));
+    CHECK(!schiva::is_target_window(
+        L"Chrome_WidgetWin_1", english, L"brave.exe"));
+    CHECK(!schiva::is_target_window(
+        L"Chrome_WidgetWin_1", english, L"chrome.exe.fake"));
+    CHECK(!schiva::is_target_window(
+        L"OtherWindowClass", english, L"chrome.exe"));
+    CHECK(!schiva::is_target_window(
+        L"Chrome_WidgetWin_1", english, L"chrome.exe", false, true));
+    CHECK(!schiva::is_target_window(
+        L"Chrome_WidgetWin_1", english, L"chrome.exe", true, false));
+}
+
 void test_geometry_helpers() {
     const schiva::Rect bounds{100, 50, 300, 250};
     const auto clipped = schiva::clipped_intersection(
@@ -152,7 +300,7 @@ void test_motion_geometry_guard() {
 }
 
 void test_scheduler_and_status() {
-    CHECK(schiva::kVersion == "0.4.0-alpha.2");
+    CHECK(schiva::kVersion == "0.4.0-alpha.3");
     CHECK(std::abs(schiva::target_period(true, false) - 1.0 / 120.0) <
           1.0e-12);
     CHECK(std::abs(schiva::target_period(false, false) - 1.0 / 60.0) <
@@ -525,6 +673,7 @@ void test_python_import() {
 
 int main() {
     test_title_and_window_identity();
+    test_official_chromium_titles();
     test_geometry_helpers();
     test_motion_geometry_guard();
     test_scheduler_and_status();

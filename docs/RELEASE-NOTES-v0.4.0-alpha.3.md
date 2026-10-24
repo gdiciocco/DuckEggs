@@ -1,14 +1,14 @@
 # DuckEggs v0.4.0-alpha.3
 
-This alpha fixes Chrome picture-in-picture recognition when Chrome is using a
-non-English language.
+This alpha expands Chrome picture-in-picture recognition to additional
+official non-English titles.
 
 [Download DuckEggs 0.4.0-alpha.3 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.3/DuckEggs-0.4.0-alpha.3-windows-x64.zip)
 
 ## What's new
 
-- Non-English Chrome picture-in-picture windows were previously not recognized;
-  DuckEggs now matches official localized Chrome PiP titles.
+- Previously, Chrome PiP recognition covered English and the legacy Italian
+  title. DuckEggs now also matches official localized Chrome PiP titles.
 
 ## Early alpha
 

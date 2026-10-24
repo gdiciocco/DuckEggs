@@ -81,9 +81,21 @@ or activate the viewer.
 - DuckEggs uses the isolated `Local\DuckEggs.Instance.v1` mutex and
   `Local\DuckEggs.Stop.v1` event. `--stop` cannot reach Python.
 
-Non-English recognition uses exact title aliases from official Chromium
-localization resources. The implementation worker will supply the exact alias
-set and its provenance.
+Recognition uses exact title aliases from Chromium localization resources at
+commit `41020d875c4518f25b5b27a76c7d418235a50f31`, for
+`IDS_PICTURE_IN_PICTURE_TITLE_TEXT` (GRIT message `7750228210027921155`).
+[`design/chromium-pip-titles.json`](../design/chromium-pip-titles.json)
+provides the English source text, all 81 locale titles, and per-locale XTB
+SHA256 provenance. The compiled table is generated offline from that frozen
+dataset.
+
+The table includes the English source and retains the legacy Italian title.
+Matching uses the same compatibility normalizer for observed and official
+titles, then requires exact normalized equality against this finite table.
+There is no prefix, class-only, topmost-only or size-only fallback. Official
+Unicode is preserved, including non-breaking spaces and trailing zero-width
+spaces. Recognition remains limited to Chrome; Edge and Brave titles are
+excluded by the strict process and class checks.
 
 Capture is a bounded one-worker latest-request/latest-result pipeline. Sampling
 is capped at 2 Hz and uses one in-memory 64 by 36 grayscale frame at a time.

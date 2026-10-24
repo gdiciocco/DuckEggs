@@ -1,5 +1,7 @@
 #include "schiva/platform.hpp"
 
+#include "chromium_pip_titles.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -7,6 +9,7 @@
 #include <cstdlib>
 #include <cwctype>
 #include <limits>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -207,10 +210,32 @@ std::wstring normalize_title(std::wstring_view title) {
     return result;
 }
 
+namespace {
+
+const std::vector<std::wstring>& chromium_pip_title_aliases() {
+    static const std::vector<std::wstring> aliases = [] {
+        std::vector<std::wstring> result;
+        result.reserve(detail::kChromiumPipOfficialTitles.size() + 1);
+        for (const std::wstring_view title :
+             detail::kChromiumPipOfficialTitles) {
+            result.push_back(normalize_title(title));
+        }
+        // Keep recognition of the title shipped by older DuckEggs builds.
+        result.push_back(normalize_title(L"Immagine nell\u2019immagine"));
+        std::sort(result.begin(), result.end());
+        result.erase(std::unique(result.begin(), result.end()), result.end());
+        return result;
+    }();
+    return aliases;
+}
+
+}  // namespace
+
 bool title_matches(std::wstring_view title) {
     const std::wstring normalized = normalize_title(title);
-    return normalized == L"picture in picture" ||
-           normalized == L"immagine nell immagine";
+    const auto& aliases = chromium_pip_title_aliases();
+    return std::binary_search(
+        aliases.begin(), aliases.end(), normalized);
 }
 
 bool process_matches(std::wstring_view process_basename) {
