@@ -2456,8 +2456,8 @@ private:
         case WM_NCDESTROY: {
             KillTimer(window_, kHeatmapTimer);
             const HWND destroyed = window_;
-            window_ = nullptr;
             panel_.heatmap_destroyed(destroyed);
+            window_ = nullptr;
             const LRESULT result =
                 DefWindowProcW(destroyed, message, wparam, lparam);
             delete this;
