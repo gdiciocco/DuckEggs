@@ -2720,6 +2720,7 @@ public:
 
     ~GdiplusSession() {
         if (started_) {
+            ui::brand::release_mark_cache();
             GdiplusShutdown(token_);
         }
     }

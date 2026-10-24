@@ -151,7 +151,7 @@ if(WIN32)
             _WIN32_WINNT=0x0A00)
     target_link_libraries(
         schiva_ui PRIVATE
-            user32 gdi32 gdiplus comctl32 shell32 dwmapi uxtheme)
+            user32 gdi32 gdiplus comctl32 shell32 dwmapi uxtheme ole32)
 endif()
 
 add_executable(DuckEggs src/main.cpp)
@@ -231,13 +231,13 @@ install(
     DESTINATION licenses)
 
 set(CPACK_PACKAGE_NAME "DuckEggs")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-preview.3")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-preview.4")
 set(CPACK_PACKAGE_FILE_NAME
-    "DuckEggs-${PROJECT_VERSION}-preview.3-windows-x64")
+    "DuckEggs-${PROJECT_VERSION}-preview.4-windows-x64")
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_SOURCE_GENERATOR "ZIP")
 set(CPACK_SOURCE_PACKAGE_FILE_NAME
-    "DuckEggs-${PROJECT_VERSION}-preview.3-source")
+    "DuckEggs-${PROJECT_VERSION}-preview.4-source")
 set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
 set(
     CPACK_SOURCE_IGNORE_FILES

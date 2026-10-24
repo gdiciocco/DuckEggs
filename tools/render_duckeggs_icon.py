@@ -1,134 +1,269 @@
 #!/usr/bin/env python3
-"""Render DuckEggs.ico and previews from the checked-in sumi-e SVGs."""
+"""Render deterministic DuckEggs raster assets from the approved PNG master.
+
+The checked-in master is the only artwork input. This helper never parses or
+reconstructs shapes: it uses Cairo to resample the complete RGBA canvas,
+including its transparent margins, for previews, RCDATA images and ICO entries.
+"""
 
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import os
 import struct
-import tempfile
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SVG_PATH = ROOT / "resources" / "duckeggs-logo.svg"
-SMALL_SVG_PATH = ROOT / "resources" / "duckeggs-logo-small.svg"
-ICO_PATH = ROOT / "resources" / "DuckEggs.ico"
-PREVIEW_PATH = ROOT / "resources" / "duckeggs-logo-512.png"
-SMALL_PREVIEW_PATH = ROOT / "resources" / "duckeggs-logo-small-48.png"
+RESOURCES = ROOT / "resources"
+MASTER_PATH = RESOURCES / "duckeggs-logo-master.png"
+ICO_PATH = RESOURCES / "DuckEggs.ico"
+PREVIEW_PATH = RESOURCES / "duckeggs-logo-512.png"
+SMALL_PREVIEW_PATH = RESOURCES / "duckeggs-logo-small-48.png"
+EMBEDDED_256_PATH = RESOURCES / "duckeggs-logo-256.png"
+EMBEDDED_128_PATH = RESOURCES / "duckeggs-logo-128.png"
+CONTACT_SHEET_PATH = ROOT / "build" / "duckeggs-logo-contact-sheet.png"
+
+MASTER_SIZE = 1254
+MASTER_SHA256 = (
+    "b51b0df0056436bca5d4b2ac8294dec24d5e7947ec366c428e2097f865d4afa0"
+)
 ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
-SMALL_ICON_MAX = 48
-PREVIEW_SIZE = 512
-SMALL_PREVIEW_SIZE = 48
+CONTACT_SIZES = (16, 24, 32, 36, 42, 48, 64)
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+CAIRO_FORMAT_ARGB32 = 0
+CAIRO_OPERATOR_SOURCE = 1
+CAIRO_FILTER_NEAREST = 3
+CAIRO_FILTER_BEST = 2
 
 
-class _Rectangle(ctypes.Structure):
-    _fields_ = [
-        ("x", ctypes.c_double),
-        ("y", ctypes.c_double),
-        ("width", ctypes.c_double),
-        ("height", ctypes.c_double),
-    ]
+class Cairo:
+    def __init__(self) -> None:
+        self.lib = ctypes.CDLL("libcairo.so.2")
+        self._declare()
 
-
-class Renderer:
-    def __init__(self, svg_path: Path) -> None:
-        self.svg_path = svg_path
-        self.cairo = ctypes.CDLL("libcairo.so.2")
-        self.rsvg = ctypes.CDLL("librsvg-2.so.2")
-
-        self.cairo.cairo_image_surface_create.argtypes = [
+    def _declare(self) -> None:
+        lib = self.lib
+        lib.cairo_image_surface_create_from_png.argtypes = [ctypes.c_char_p]
+        lib.cairo_image_surface_create_from_png.restype = ctypes.c_void_p
+        lib.cairo_image_surface_create.argtypes = [
             ctypes.c_int,
             ctypes.c_int,
             ctypes.c_int,
         ]
-        self.cairo.cairo_image_surface_create.restype = ctypes.c_void_p
-        self.cairo.cairo_create.argtypes = [ctypes.c_void_p]
-        self.cairo.cairo_create.restype = ctypes.c_void_p
-        self.cairo.cairo_destroy.argtypes = [ctypes.c_void_p]
-        self.cairo.cairo_surface_destroy.argtypes = [ctypes.c_void_p]
-        self.cairo.cairo_surface_flush.argtypes = [ctypes.c_void_p]
-        self.cairo.cairo_image_surface_get_data.argtypes = [ctypes.c_void_p]
-        self.cairo.cairo_image_surface_get_data.restype = ctypes.POINTER(
+        lib.cairo_image_surface_create.restype = ctypes.c_void_p
+        lib.cairo_surface_status.argtypes = [ctypes.c_void_p]
+        lib.cairo_surface_status.restype = ctypes.c_int
+        lib.cairo_image_surface_get_width.argtypes = [ctypes.c_void_p]
+        lib.cairo_image_surface_get_width.restype = ctypes.c_int
+        lib.cairo_image_surface_get_height.argtypes = [ctypes.c_void_p]
+        lib.cairo_image_surface_get_height.restype = ctypes.c_int
+        lib.cairo_image_surface_get_stride.argtypes = [ctypes.c_void_p]
+        lib.cairo_image_surface_get_stride.restype = ctypes.c_int
+        lib.cairo_image_surface_get_data.argtypes = [ctypes.c_void_p]
+        lib.cairo_image_surface_get_data.restype = ctypes.POINTER(
             ctypes.c_ubyte
         )
-        self.cairo.cairo_image_surface_get_stride.argtypes = [ctypes.c_void_p]
-        self.cairo.cairo_image_surface_get_stride.restype = ctypes.c_int
-        self.cairo.cairo_surface_write_to_png.argtypes = [
+        lib.cairo_surface_flush.argtypes = [ctypes.c_void_p]
+        lib.cairo_surface_write_to_png.argtypes = [
             ctypes.c_void_p,
             ctypes.c_char_p,
         ]
-        self.cairo.cairo_surface_write_to_png.restype = ctypes.c_int
-
-        self.rsvg.rsvg_handle_new_from_file.argtypes = [
+        lib.cairo_surface_write_to_png.restype = ctypes.c_int
+        lib.cairo_surface_destroy.argtypes = [ctypes.c_void_p]
+        lib.cairo_create.argtypes = [ctypes.c_void_p]
+        lib.cairo_create.restype = ctypes.c_void_p
+        lib.cairo_destroy.argtypes = [ctypes.c_void_p]
+        lib.cairo_set_operator.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        lib.cairo_set_source_rgba.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_double,
+            ctypes.c_double,
+            ctypes.c_double,
+            ctypes.c_double,
+        ]
+        lib.cairo_set_source_rgb.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_double,
+            ctypes.c_double,
+            ctypes.c_double,
+        ]
+        lib.cairo_scale.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_double,
+            ctypes.c_double,
+        ]
+        lib.cairo_set_source_surface.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_double,
+            ctypes.c_double,
+        ]
+        lib.cairo_get_source.argtypes = [ctypes.c_void_p]
+        lib.cairo_get_source.restype = ctypes.c_void_p
+        lib.cairo_pattern_set_filter.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        lib.cairo_paint.argtypes = [ctypes.c_void_p]
+        lib.cairo_rectangle.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_double,
+            ctypes.c_double,
+            ctypes.c_double,
+            ctypes.c_double,
+        ]
+        lib.cairo_fill.argtypes = [ctypes.c_void_p]
+        lib.cairo_select_font_face.argtypes = [
+            ctypes.c_void_p,
             ctypes.c_char_p,
-            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_int,
+            ctypes.c_int,
         ]
-        self.rsvg.rsvg_handle_new_from_file.restype = ctypes.c_void_p
-        self.rsvg.rsvg_handle_render_document.argtypes = [
+        lib.cairo_set_font_size.argtypes = [ctypes.c_void_p, ctypes.c_double]
+        lib.cairo_move_to.argtypes = [
             ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.POINTER(_Rectangle),
-            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_double,
+            ctypes.c_double,
         ]
-        self.rsvg.rsvg_handle_render_document.restype = ctypes.c_int
-        self.rsvg.rsvg_handle_free.argtypes = [ctypes.c_void_p]
+        lib.cairo_show_text.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
 
-    def render(self, size: int) -> tuple[bytes, bytes]:
-        """Return a PNG and a bottom-up 32-bit DIB for one square size."""
-        surface = self.cairo.cairo_image_surface_create(
-            0, size, size
-        )  # CAIRO_FORMAT_ARGB32
-        if not surface:
-            raise RuntimeError("cairo could not create the icon surface")
-        context = self.cairo.cairo_create(surface)
-        handle = self.rsvg.rsvg_handle_new_from_file(
-            os.fsencode(self.svg_path), None
+    def open_png(self, path: Path) -> ctypes.c_void_p:
+        surface = self.lib.cairo_image_surface_create_from_png(
+            os.fsencode(path)
         )
-        if not handle:
-            self.cairo.cairo_destroy(context)
-            self.cairo.cairo_surface_destroy(surface)
-            raise RuntimeError(
-                f"librsvg could not open {self.svg_path}"
-            )
+        if not surface or self.lib.cairo_surface_status(surface) != 0:
+            if surface:
+                self.lib.cairo_surface_destroy(surface)
+            raise RuntimeError(f"cairo could not open {path}")
+        return surface
+
+    def new_surface(self, width: int, height: int) -> ctypes.c_void_p:
+        surface = self.lib.cairo_image_surface_create(
+            CAIRO_FORMAT_ARGB32, width, height
+        )
+        if not surface or self.lib.cairo_surface_status(surface) != 0:
+            if surface:
+                self.lib.cairo_surface_destroy(surface)
+            raise RuntimeError("cairo could not create an image surface")
+        return surface
+
+    def resize(
+        self,
+        source: ctypes.c_void_p,
+        width: int,
+        height: int,
+    ) -> ctypes.c_void_p:
+        destination = self.new_surface(width, height)
+        context = self.lib.cairo_create(destination)
+        if not context:
+            self.lib.cairo_surface_destroy(destination)
+            raise RuntimeError("cairo could not create a rendering context")
         try:
-            rectangle = _Rectangle(0.0, 0.0, float(size), float(size))
-            error = ctypes.c_void_p()
-            rendered = self.rsvg.rsvg_handle_render_document(
-                handle,
+            self.lib.cairo_set_operator(context, CAIRO_OPERATOR_SOURCE)
+            self.lib.cairo_set_source_rgba(context, 0.0, 0.0, 0.0, 0.0)
+            self.lib.cairo_paint(context)
+            self.lib.cairo_scale(
                 context,
-                ctypes.byref(rectangle),
-                ctypes.byref(error),
+                width / self.width(source),
+                height / self.height(source),
             )
-            if not rendered:
-                raise RuntimeError("librsvg could not render the SVG")
-
-            with tempfile.NamedTemporaryFile(
-                suffix=".png", delete=False
-            ) as temporary:
-                png_path = Path(temporary.name)
-            try:
-                status = self.cairo.cairo_surface_write_to_png(
-                    surface, os.fsencode(png_path)
-                )
-                if status:
-                    raise RuntimeError(
-                        f"cairo PNG write failed with status {status}"
-                    )
-                png = png_path.read_bytes()
-            finally:
-                png_path.unlink(missing_ok=True)
-
-            self.cairo.cairo_surface_flush(surface)
-            data = self.cairo.cairo_image_surface_get_data(surface)
-            stride = self.cairo.cairo_image_surface_get_stride(surface)
-            dib = _make_dib(data, stride, size)
-            return png, dib
+            self.lib.cairo_set_source_surface(context, source, 0.0, 0.0)
+            self.lib.cairo_pattern_set_filter(
+                self.lib.cairo_get_source(context), CAIRO_FILTER_BEST
+            )
+            self.lib.cairo_paint(context)
         finally:
-            self.rsvg.rsvg_handle_free(handle)
-            self.cairo.cairo_destroy(context)
-            self.cairo.cairo_surface_destroy(surface)
+            self.lib.cairo_destroy(context)
+        self.lib.cairo_surface_flush(destination)
+        return destination
+
+    def write_png(self, surface: ctypes.c_void_p, path: Path) -> bytes:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        status = self.lib.cairo_surface_write_to_png(
+            surface, os.fsencode(path)
+        )
+        if status != 0:
+            raise RuntimeError(f"cairo PNG write failed with status {status}")
+        return path.read_bytes()
+
+    def width(self, surface: ctypes.c_void_p) -> int:
+        return self.lib.cairo_image_surface_get_width(surface)
+
+    def height(self, surface: ctypes.c_void_p) -> int:
+        return self.lib.cairo_image_surface_get_height(surface)
+
+    def destroy(self, surface: ctypes.c_void_p) -> None:
+        self.lib.cairo_surface_destroy(surface)
+
+    def make_contact_sheet(
+        self,
+        surfaces: dict[int, ctypes.c_void_p],
+        path: Path,
+    ) -> None:
+        cell_width = 100
+        cell_height = 96
+        sheet_width = cell_width * len(CONTACT_SIZES)
+        sheet = self.new_surface(sheet_width, cell_height)
+        context = self.lib.cairo_create(sheet)
+        if not context:
+            self.destroy(sheet)
+            raise RuntimeError("cairo could not create contact-sheet context")
+        try:
+            self.lib.cairo_set_source_rgb(context, 0.11, 0.13, 0.15)
+            self.lib.cairo_paint(context)
+            for index, size in enumerate(CONTACT_SIZES):
+                image = surfaces[size]
+                x = index * cell_width + (cell_width - size) // 2
+                y = 8
+                self.lib.cairo_set_source_surface(context, image, x, y)
+                self.lib.cairo_pattern_set_filter(
+                    self.lib.cairo_get_source(context), CAIRO_FILTER_NEAREST
+                )
+                self.lib.cairo_paint(context)
+
+                self.lib.cairo_set_source_rgba(
+                    context, 0.86, 0.89, 0.91, 1.0
+                )
+                self.lib.cairo_select_font_face(
+                    context, b"DejaVu Sans", 0, 0
+                )
+                self.lib.cairo_set_font_size(context, 11.0)
+                label = f"actual {size} px".encode("ascii")
+                self.lib.cairo_move_to(
+                    context, index * cell_width + 10.0, 84.0
+                )
+                self.lib.cairo_show_text(context, label)
+        finally:
+            self.lib.cairo_destroy(context)
+        self.write_png(sheet, path)
+        self.destroy(sheet)
+
+
+def _png_size(contents: bytes) -> tuple[int, int]:
+    if not contents.startswith(PNG_SIGNATURE) or contents[12:16] != b"IHDR":
+        raise RuntimeError("invalid PNG signature or IHDR")
+    return struct.unpack_from(">II", contents, 16)
+
+
+def _alpha_summary(
+    data: ctypes.POINTER(ctypes.c_ubyte),
+    stride: int,
+    width: int,
+    height: int,
+) -> tuple[int, int, int]:
+    transparent = 0
+    partial = 0
+    opaque = 0
+    for y in range(height):
+        row = y * stride
+        for x in range(width):
+            alpha = data[row + x * 4 + 3]
+            if alpha == 0:
+                transparent += 1
+            elif alpha == 255:
+                opaque += 1
+            else:
+                partial += 1
+    return transparent, partial, opaque
 
 
 def _make_dib(
@@ -219,45 +354,101 @@ def _validate_ico(path: Path) -> None:
         if bits != 32 or actual_width != actual_height:
             raise RuntimeError("invalid ICO image entry")
         if image.startswith(PNG_SIGNATURE):
-            png_width, png_height = struct.unpack_from(">II", image, 16)
-            if (png_width, png_height) != (actual_width, actual_height):
-                raise RuntimeError("PNG entry dimensions do not match")
+            if _png_size(image) != (actual_width, actual_height):
+                raise RuntimeError("ICO PNG dimensions do not match")
         else:
             dib_width, dib_height = struct.unpack_from("<ii", image, 4)
             if (dib_width, dib_height) != (actual_width, actual_height * 2):
-                raise RuntimeError("DIB entry dimensions do not match")
+                raise RuntimeError("ICO DIB dimensions do not match")
         found_sizes.append(actual_width)
     if tuple(found_sizes) != ICON_SIZES:
         raise RuntimeError(f"unexpected ICO sizes: {found_sizes}")
 
 
 def main() -> None:
-    large_renderer = Renderer(SVG_PATH)
-    small_renderer = Renderer(SMALL_SVG_PATH)
-    rendered = {
-        size: (
-            small_renderer if size <= SMALL_ICON_MAX else large_renderer
-        ).render(size)
-        for size in ICON_SIZES
-    }
-    ico_entries = []
-    for size in ICON_SIZES:
-        png, dib = rendered[size]
-        ico_entries.append((size, png if size == 256 else dib))
+    master_bytes = MASTER_PATH.read_bytes()
+    actual_hash = hashlib.sha256(master_bytes).hexdigest()
+    if actual_hash != MASTER_SHA256:
+        raise RuntimeError(
+            f"approved master hash changed: {actual_hash}; refusing to render"
+        )
+    if _png_size(master_bytes) != (MASTER_SIZE, MASTER_SIZE):
+        raise RuntimeError("approved master is not 1254 by 1254")
 
-    ICO_PATH.write_bytes(_build_ico(ico_entries))
-    _validate_ico(ICO_PATH)
+    cairo = Cairo()
+    master = cairo.open_png(MASTER_PATH)
+    surfaces: dict[int, ctypes.c_void_p] = {}
+    try:
+        if (cairo.width(master), cairo.height(master)) != (
+            MASTER_SIZE,
+            MASTER_SIZE,
+        ):
+            raise RuntimeError("cairo read different master dimensions")
+        cairo.lib.cairo_surface_flush(master)
+        master_alpha = _alpha_summary(
+            cairo.lib.cairo_image_surface_get_data(master),
+            cairo.lib.cairo_image_surface_get_stride(master),
+            MASTER_SIZE,
+            MASTER_SIZE,
+        )
+        if master_alpha[0] == 0 or master_alpha[1] + master_alpha[2] == 0:
+            raise RuntimeError("approved master has no valid transparent artwork")
+        for size in sorted(set(ICON_SIZES) | set(CONTACT_SIZES) | {48, 512}):
+            surfaces[size] = cairo.resize(master, size, size)
 
-    preview_png, _ = large_renderer.render(PREVIEW_SIZE)
-    PREVIEW_PATH.write_bytes(preview_png)
-    small_preview_png, _ = small_renderer.render(SMALL_PREVIEW_SIZE)
-    SMALL_PREVIEW_PATH.write_bytes(small_preview_png)
+        embedded_256 = cairo.write_png(surfaces[256], EMBEDDED_256_PATH)
+        embedded_128 = cairo.write_png(surfaces[128], EMBEDDED_128_PATH)
+        cairo.write_png(surfaces[512], PREVIEW_PATH)
+        cairo.write_png(surfaces[48], SMALL_PREVIEW_PATH)
+        for path, expected in (
+            (EMBEDDED_256_PATH, (256, 256)),
+            (EMBEDDED_128_PATH, (128, 128)),
+            (PREVIEW_PATH, (512, 512)),
+            (SMALL_PREVIEW_PATH, (48, 48)),
+        ):
+            if _png_size(path.read_bytes()) != expected:
+                raise RuntimeError(f"unexpected PNG dimensions in {path}")
+
+        alpha_sets = []
+        ico_entries = []
+        for size in ICON_SIZES:
+            surface = surfaces[size]
+            cairo.lib.cairo_surface_flush(surface)
+            alpha_sets.append(
+                _alpha_summary(
+                    cairo.lib.cairo_image_surface_get_data(surface),
+                    cairo.lib.cairo_image_surface_get_stride(surface),
+                    size,
+                    size,
+                )
+            )
+            if size == 256:
+                image = embedded_256
+            else:
+                image = _make_dib(
+                    cairo.lib.cairo_image_surface_get_data(surface),
+                    cairo.lib.cairo_image_surface_get_stride(surface),
+                    size,
+                )
+            ico_entries.append((size, image))
+
+        if len(embedded_128) >= len(embedded_256):
+            raise RuntimeError("128 px RCDATA should be smaller than 256 px")
+        if not all(partial + opaque for _, partial, opaque in alpha_sets):
+            raise RuntimeError("resampled icon contains no artwork")
+
+        ICO_PATH.write_bytes(_build_ico(ico_entries))
+        _validate_ico(ICO_PATH)
+        cairo.make_contact_sheet(surfaces, CONTACT_SHEET_PATH)
+    finally:
+        for surface in surfaces.values():
+            cairo.destroy(surface)
+        cairo.destroy(master)
+
     print(
         f"wrote {ICO_PATH.relative_to(ROOT)} "
-        f"({', '.join(map(str, ICON_SIZES))} px) and "
-        f"previews {PREVIEW_PATH.relative_to(ROOT)} ({PREVIEW_SIZE} px), "
-        f"{SMALL_PREVIEW_PATH.relative_to(ROOT)} "
-        f"({SMALL_PREVIEW_SIZE} px)"
+        f"({', '.join(map(str, ICON_SIZES))} px), PNG previews/resources, "
+        f"and {CONTACT_SHEET_PATH.relative_to(ROOT)}"
     )
 
 

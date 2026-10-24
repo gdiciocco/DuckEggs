@@ -1,4 +1,4 @@
-# DuckEggs 0.4.0-preview.3
+# DuckEggs 0.4.0-preview.4
 
 DuckEggs is a native C++20 port of the Schiva adaptive Picture-in-Picture
 experience. It learns where Chrome's native PiP window fits your work and moves
@@ -20,6 +20,13 @@ Segoe UI typography, DPI-scaled metrics and native keyboard controls. It starts
 paused and shows a clear Paused/Watching/Moving/No PiP status, Chrome PiP
 availability, learning updates, visual-signal state, and the primary
 Resume/Pause action. Learning maps and Exit are secondary actions.
+
+The brand mark is the approved DuckEggs raster artwork. Its checked-in master
+PNG is authoritative; the native header renders an embedded 256 px copy (with
+a 128 px fallback) without filesystem lookup. The ICO and preview images are
+deterministic Cairo resamples of the complete master canvas, preserving its
+transparent margins and brush, expression, shell and yolk details. No SVG is
+used as a reconstructed vector source.
 
 The Learning maps window is a read-only local viewer with:
 
@@ -171,7 +178,7 @@ cpack -C Release
 ```
 
 The portable artifact is
-`DuckEggs-0.4.0-preview.3-windows-x64.zip`. It contains the executable,
+`DuckEggs-0.4.0-preview.4-windows-x64.zip`. It contains the executable,
 launchers, documentation, and the complete SQLite and nlohmann/json license
 and provenance files under `licenses/`.
 

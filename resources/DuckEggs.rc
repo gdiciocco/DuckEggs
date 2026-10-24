@@ -1,5 +1,9 @@
 #include <windows.h>
 
 #define IDI_DUCKEGGS_APP 101
+#define IDR_DUCKEGGS_LOGO_256 102
+#define IDR_DUCKEGGS_LOGO_128 103
 
 IDI_DUCKEGGS_APP ICON "DuckEggs.ico"
+IDR_DUCKEGGS_LOGO_256 RCDATA "duckeggs-logo-256.png"
+IDR_DUCKEGGS_LOGO_128 RCDATA "duckeggs-logo-128.png"
