@@ -54,3 +54,17 @@ in both native window headers and the embedded Windows executable/window icon.
 Original editable vector artwork: resources/duckeggs-logo.svg. Static Windows
 icon: resources/DuckEggs.ico (16,24,32,48,64,128,256px). Native scalable rendering:
 src/runtime/brand_mark.hpp. No extra runtime dependency is introduced.
+
+## Compact UI and dynamic logo — user update 2026-10-24
+This supersedes the earlier generous-spacing direction. Reduce empty surface area,
+not legibility: main window targets600x360 logical pixels with a560x340 minimum;
+Learning maps targets920x660 with an860x620 minimum. Reorganize controls and text
+for these sizes, including projected maps and status/error messages. Keep English,
+DPI scaling, meaningful legends and the three-layer/profile selection behavior.
+
+The logo should feel more dynamic and distinctive: a clear backward reaction to
+the incoming egg, an expressive face and a bold impact mark. Prefer a strong flat
+silhouette and useful negative space over an ordinary boxed avatar. Preserve the
+man-hit-by-egg subject and coherent teal/white/yellow on slate colors. Native
+headers, SVG and all icon resolutions must share the same composition. No new
+runtime dependencies, backend/model changes or Python modifications are allowed.
