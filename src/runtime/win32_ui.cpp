@@ -1008,56 +1008,9 @@ private:
         return true;
     }
 
-    void hide_to_tray() {
-        if (hidden_to_tray_) {
-            return;
-        }
-        if (!add_tray_icon()) {
-            MessageBoxW(
-                window_,
-                L"DuckEggs could not add its notification icon, so the "
-                L"window remains open.",
-                L"DuckEggs",
-                MB_OK | MB_ICONERROR);
-            return;
-        }
-        hidden_to_tray_ = true;
-        heatmap_visible_before_tray_ =
-            heatmap_ != nullptr &&
-            IsWindowVisible(heatmap_->window()) != FALSE;
-        if (heatmap_visible_before_tray_) {
-            ShowWindow(heatmap_->window(), SW_HIDE);
-        }
-        ShowWindow(window_, SW_HIDE);
-    }
+    void hide_to_tray();
 
-    void restore_from_tray(bool re_add_failed = false) {
-        remove_tray_icon();
-        hidden_to_tray_ = false;
-        if (window_ != nullptr) {
-            ShowWindow(window_, SW_RESTORE);
-            SetForegroundWindow(window_);
-        }
-        HWND foreground = window_;
-        if (heatmap_visible_before_tray_ &&
-            heatmap_ != nullptr &&
-            IsWindow(heatmap_->window())) {
-            ShowWindow(heatmap_->window(), SW_SHOW);
-            foreground = heatmap_->window();
-        }
-        heatmap_visible_before_tray_ = false;
-        if (foreground != nullptr) {
-            SetForegroundWindow(foreground);
-        }
-        if (re_add_failed) {
-            MessageBoxW(
-                window_,
-                L"DuckEggs could not restore its notification icon after "
-                L"Explorer restarted. The window has been restored.",
-                L"DuckEggs",
-                MB_OK | MB_ICONERROR);
-        }
-    }
+    void restore_from_tray(bool re_add_failed = false);
 
     void show_tray_menu(int x, int y) {
         refresh();
@@ -3059,6 +3012,57 @@ ControlPanel::~ControlPanel() {
         DeleteObject(background_brush_);
     }
     destroy_fonts();
+}
+
+void ControlPanel::hide_to_tray() {
+    if (hidden_to_tray_) {
+        return;
+    }
+    if (!add_tray_icon()) {
+        MessageBoxW(
+            window_,
+            L"DuckEggs could not add its notification icon, so the "
+            L"window remains open.",
+            L"DuckEggs",
+            MB_OK | MB_ICONERROR);
+        return;
+    }
+    hidden_to_tray_ = true;
+    heatmap_visible_before_tray_ =
+        heatmap_ != nullptr &&
+        IsWindowVisible(heatmap_->window()) != FALSE;
+    if (heatmap_visible_before_tray_) {
+        ShowWindow(heatmap_->window(), SW_HIDE);
+    }
+    ShowWindow(window_, SW_HIDE);
+}
+
+void ControlPanel::restore_from_tray(bool re_add_failed) {
+    remove_tray_icon();
+    hidden_to_tray_ = false;
+    if (window_ != nullptr) {
+        ShowWindow(window_, SW_RESTORE);
+        SetForegroundWindow(window_);
+    }
+    HWND foreground = window_;
+    if (heatmap_visible_before_tray_ &&
+        heatmap_ != nullptr &&
+        IsWindow(heatmap_->window())) {
+        ShowWindow(heatmap_->window(), SW_SHOW);
+        foreground = heatmap_->window();
+    }
+    heatmap_visible_before_tray_ = false;
+    if (foreground != nullptr) {
+        SetForegroundWindow(foreground);
+    }
+    if (re_add_failed) {
+        MessageBoxW(
+            window_,
+            L"DuckEggs could not restore its notification icon after "
+            L"Explorer restarted. The window has been restored.",
+            L"DuckEggs",
+            MB_OK | MB_ICONERROR);
+    }
 }
 
 void ControlPanel::heatmap_destroyed(HWND window) {
