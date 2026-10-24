@@ -1,4 +1,4 @@
-# Developing DuckEggs 0.4.0-alpha.2
+# Developing DuckEggs 0.4.0-alpha.3
 
 This document preserves the detailed engineering, build, and verification
 information for DuckEggs. See the [root README](../README.md) for the public
@@ -80,6 +80,10 @@ or activate the viewer.
   stops or modifies the Python application or its database.
 - DuckEggs uses the isolated `Local\DuckEggs.Instance.v1` mutex and
   `Local\DuckEggs.Stop.v1` event. `--stop` cannot reach Python.
+
+Non-English recognition uses exact title aliases from official Chromium
+localization resources. The implementation worker will supply the exact alias
+set and its provenance.
 
 Capture is a bounded one-worker latest-request/latest-result pipeline. Sampling
 is capped at 2 Hz and uses one in-memory 64 by 36 grayscale frame at a time.
@@ -197,7 +201,7 @@ cpack -C Release
 ```
 
 The portable artifact is
-`DuckEggs-0.4.0-alpha.2-windows-x64.zip`. It contains the executable,
+`DuckEggs-0.4.0-alpha.3-windows-x64.zip`. It contains the executable,
 launchers, documentation, and the complete SQLite and nlohmann/json license
 and provenance files under `licenses/`.
 

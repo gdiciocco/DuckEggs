@@ -12,15 +12,17 @@ DuckEggs is a small Windows app that moves Chrome's picture-in-picture window
 when it gets in the way of your work. It learns where you prefer the window in
 different apps and moves it smoothly when there is a better spot.
 
-[Download DuckEggs 0.4.0-alpha.2 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.2/DuckEggs-0.4.0-alpha.2-windows-x64.zip)
+[Download DuckEggs 0.4.0-alpha.3 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.3/DuckEggs-0.4.0-alpha.3-windows-x64.zip)
 
 This is an early alpha. See the
-[v0.4.0-alpha.2 pre-release](https://github.com/gdiciocco/DuckEggs/releases/tag/v0.4.0-alpha.2)
+[v0.4.0-alpha.3 pre-release](https://github.com/gdiciocco/DuckEggs/releases/tag/v0.4.0-alpha.3)
 for release details.
 
 ## What it does
 
 - Moves the floating video smoothly instead of making it jump around.
+- Recognizes Chrome's picture-in-picture window when Chrome is using another
+  language.
 - Leaves your mouse usable while the video moves. Moving the pointer over the
   PiP controls stops movement.
 - Remembers your layout preferences for each app, locally on your PC.
@@ -30,8 +32,9 @@ for release details.
 
 ## Requirements
 
-DuckEggs 0.4.0-alpha.2 currently supports Windows 10 or Windows 11, 64-bit,
+DuckEggs 0.4.0-alpha.3 currently supports Windows 10 or Windows 11, 64-bit,
 with Google Chrome. It uses Chrome's built-in picture-in-picture window.
+The DuckEggs interface remains in English.
 
 There is no installer, account, browser extension, or additional runtime to
 set up.
