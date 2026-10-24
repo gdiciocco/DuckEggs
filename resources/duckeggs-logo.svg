@@ -3,69 +3,86 @@
      width="64"
      height="64"
      viewBox="0 0 64 64">
-  <rect x="1.5" y="1.5"
-        width="61" height="61" rx="13.5"
-        fill="#1B222D"
-        stroke="#3B4A5C"
-        stroke-width="1.5"/>
+  <title>DuckEggs</title>
+  <desc>A stylized person recoiling as a cracked egg lands on their head.</desc>
 
-  <path d="M13 55
-           C14 48 20 44 28 44
-           C36 44 42 48 45 55"
-        fill="#73DCC5" fill-opacity="0.12"
-        stroke="#73DCC5"
-        stroke-width="3.1"
-        stroke-linecap="round"/>
+  <!-- An asymmetric slate field keeps the mark out of an avatar frame. -->
+  <path d="M31.5 2
+           C44.2 2 54.3 8.6 59.2 19.7
+           C64.1 30.8 61.6 44.5 51.2 54
+           C40.6 61.8 22.2 62.1 11 54
+           C1.4 47 0.2 32.3 6.4 19.8
+           C11.7 9 20.1 2 31.5 2Z"
+        fill="#17212B"/>
 
-  <g transform="translate(25.5 28) rotate(-18)">
-    <path d="M0 -11.5
-             C5.9 -11.5 10.7 -6.4 10.7 0
-             C10.7 6.4 5.9 11.5 0 11.5
-             C-5.9 11.5 -10.7 6.4 -10.7 0
-             C-10.7 -6.4 -5.9 -11.5 0 -11.5Z"
-          fill="#11151C"
-          stroke="#E8EEF5"
-          stroke-width="2.3"
-          stroke-linejoin="round"/>
-    <circle cx="-4.2" cy="-1.2" r="1" fill="#E8EEF5"/>
-    <circle cx="4" cy="0.2" r="1" fill="#E8EEF5"/>
-    <path d="M-3 6
-             C-1.7 7.8 2 7.8 3.6 6"
+  <!-- Recoiling torso: one bold silhouette, no small interior marks. -->
+  <path d="M4.2 61
+           C5.2 53.8 7.6 47 12.2 42.6
+           L19.3 47.1
+           C24.5 48.8 30.1 49.4 34.4 51.6
+           C37.9 53.4 39.7 56.8 40.4 61Z"
+        fill="#73DCC5"/>
+
+  <!-- The head is tipped away from the incoming egg. -->
+  <g transform="translate(24.2 35.5) rotate(-24)">
+    <path d="M0 -12.2
+             C6.3 -12.2 10.2 -7.1 10.2 0
+             C10.2 7.2 6.3 12.2 0 12.2
+             C-6.3 12.2 -10.2 7.2 -10.2 0
+             C-10.2 -7.1 -6.3 -12.2 0 -12.2Z"
+          fill="#F7FAFC"/>
+
+    <!-- Surprised eye plus a squeezed eye on the impact side. -->
+    <ellipse cx="-3.8" cy="-1.1" rx="1.25" ry="1.85"
+             fill="#17212B"/>
+    <path d="M2.5 -2.7 L4.4 -1 L2.6 0.9"
           fill="none"
-          stroke="#73DCC5"
-          stroke-width="1.5"
-          stroke-linecap="round"/>
+          stroke="#17212B"
+          stroke-width="1.55"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+    <ellipse cx="0.7" cy="6.1" rx="2.15" ry="2.9"
+             fill="#17212B"/>
   </g>
 
-  <g transform="translate(46 14) rotate(45)">
-    <path d="M0 12
-             C-4.5 12 -8.5 6 -8.5 0
-             C-8.5 -6 -5 -12 0 -12
-             C5 -12 8.5 -6 8.5 0
-             C8.5 6 4.5 12 0 12Z"
-          fill="#E8EEF5" fill-opacity="0.14"
-          stroke="#E8EEF5"
-          stroke-width="2"
-          stroke-linejoin="round"/>
-    <circle cx="0" cy="-2" r="4.5" fill="#F4C969"/>
-    <path d="M-6.5 5
-             L-3 6.5
-             L-0.5 4.5
-             L2 7
-             L5.5 5"
+  <!-- The diagonal egg avoids a generic circular-badge read. -->
+  <g transform="translate(47 18) rotate(38)">
+    <path d="M0 13.5
+             C-5.7 13.5 -9 7.2 -9 0
+             C-9 -7.5 -5 -13.5 0 -13.5
+             C5 -13.5 9 -7.5 9 0
+             C9 7.2 5.7 13.5 0 13.5Z"
+          fill="#F7FAFC"/>
+    <circle cx="-2.2" cy="4.2" r="4.8" fill="#FFD34E"/>
+    <path d="M-8.2 -3.7
+             L-5.5 -2.2
+             L-7 0.2
+             L-4.3 2.1"
           fill="none"
-          stroke="#E8EEF5"
+          stroke="#17212B"
           stroke-width="1.35"
           stroke-linecap="round"
           stroke-linejoin="round"/>
   </g>
 
+  <!-- Compact impact burst bridges egg and head at every icon size. -->
+  <path d="M31.2 21.8
+           L33.1 24.1
+           L36 24.3
+           L33.7 26.2
+           L34.5 29.1
+           L31.7 27.5
+           L28.9 29.4
+           L29.5 26.4
+           L27 24.7
+           L30.1 24.3Z"
+        fill="#FFD34E"/>
   <g fill="none"
-     stroke="#F4C969"
-     stroke-width="2.2"
+     stroke="#FFD34E"
+     stroke-width="1.9"
      stroke-linecap="round">
-    <path d="M34 23 L30.5 20.5"/>
-    <path d="M36 19 L35 15"/>
-    <path d="M37 27.5 L34 29.5"/>
+    <path d="M26.9 22.2 L23.4 20.6"/>
+    <path d="M31.1 18.5 L31.2 15.1"/>
+    <path d="M35.3 27.8 L38.3 30.4"/>
   </g>
 </svg>

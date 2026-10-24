@@ -17,61 +17,11 @@ constexpr int kAppIconResourceId = 101;
 
 namespace detail {
 
-constexpr Gdiplus::ARGB kSurface = 0xff1b222d;
-constexpr Gdiplus::ARGB kBackground = 0xff11151c;
-constexpr Gdiplus::ARGB kBorderStrong = 0xff3b4a5c;
+constexpr Gdiplus::ARGB kSurface = 0xff17212b;
+constexpr Gdiplus::ARGB kInk = 0xff111a22;
 constexpr Gdiplus::ARGB kAccent = 0xff73dcc5;
-constexpr Gdiplus::ARGB kText = 0xffe8eef5;
-constexpr Gdiplus::ARGB kWarm = 0xfff4c969;
-
-inline Gdiplus::Color with_alpha(
-    Gdiplus::ARGB value,
-    BYTE alpha) {
-    return Gdiplus::Color(
-        alpha,
-        static_cast<BYTE>((value >> 16U) & 0xffU),
-        static_cast<BYTE>((value >> 8U) & 0xffU),
-        static_cast<BYTE>(value & 0xffU));
-}
-
-inline void add_rounded_rect(
-    Gdiplus::GraphicsPath& path,
-    const Gdiplus::RectF& bounds,
-    Gdiplus::REAL radius) {
-    const Gdiplus::REAL diameter = std::min(
-        radius * 2.0F,
-        std::min(bounds.Width, bounds.Height));
-    path.Reset();
-    path.AddArc(
-        bounds.X,
-        bounds.Y,
-        diameter,
-        diameter,
-        180.0F,
-        90.0F);
-    path.AddArc(
-        bounds.GetRight() - diameter,
-        bounds.Y,
-        diameter,
-        diameter,
-        270.0F,
-        90.0F);
-    path.AddArc(
-        bounds.GetRight() - diameter,
-        bounds.GetBottom() - diameter,
-        diameter,
-        diameter,
-        0.0F,
-        90.0F);
-    path.AddArc(
-        bounds.X,
-        bounds.GetBottom() - diameter,
-        diameter,
-        diameter,
-        90.0F,
-        90.0F);
-    path.CloseFigure();
-}
+constexpr Gdiplus::ARGB kText = 0xfff7fafc;
+constexpr Gdiplus::ARGB kWarm = 0xffffd34e;
 
 }  // namespace detail
 
@@ -103,182 +53,244 @@ inline void draw_mark(
                                 REAL y3,
                                 REAL x4,
                                 REAL y4) {
-        const PointF first = point(x1, y1);
-        const PointF second = point(x2, y2);
-        const PointF third = point(x3, y3);
-        const PointF fourth = point(x4, y4);
-        path.AddBezier(first, second, third, fourth);
-    };
-    const auto transformed = [](PointF value) {
-        constexpr REAL cosine = 0.9510565F;
-        constexpr REAL sine = -0.3090170F;
-        return PointF(
-            25.5F + value.X * cosine - value.Y * sine,
-            28.0F + value.X * sine + value.Y * cosine);
+        path.AddBezier(
+            point(x1, y1),
+            point(x2, y2),
+            point(x3, y3),
+            point(x4, y4));
     };
 
-    const PointF outer = point(1.5F, 1.5F);
-    GraphicsPath tile;
-    detail::add_rounded_rect(
-        tile,
-        RectF(
-            outer.X,
-            outer.Y,
-            61.0F * scale,
-            61.0F * scale),
-        13.5F * scale);
-    SolidBrush tile_fill{Color(detail::kSurface)};
-    graphics.FillPath(&tile_fill, &tile);
-    Pen tile_pen(
-        Color(detail::kBorderStrong),
-        stroke_width * 0.75F);
-    graphics.DrawPath(&tile_pen, &tile);
+    // The head supplies the backward recoil in the upper-right impact line.
+    const auto head_point = [&point](REAL x, REAL y) {
+        constexpr REAL cosine = 0.9135455F;
+        constexpr REAL sine = -0.4067366F;
+        return point(
+            24.2F + x * cosine - y * sine,
+            35.5F + x * sine + y * cosine);
+    };
+    const auto add_head_bezier = [
+                                      &head_point](
+                                      GraphicsPath& path,
+                                      REAL x1,
+                                      REAL y1,
+                                      REAL x2,
+                                      REAL y2,
+                                      REAL x3,
+                                      REAL y3,
+                                      REAL x4,
+                                      REAL y4) {
+        path.AddBezier(
+            head_point(x1, y1),
+            head_point(x2, y2),
+            head_point(x3, y3),
+            head_point(x4, y4));
+    };
+    const auto add_head_oval = [&add_head_bezier](
+                                   GraphicsPath& path,
+                                   REAL center_x,
+                                   REAL center_y,
+                                   REAL radius_x,
+                                   REAL radius_y) {
+        constexpr REAL kappa = 0.55228475F;
+        path.StartFigure();
+        add_head_bezier(
+            path,
+            center_x, center_y - radius_y,
+            center_x + radius_x * kappa, center_y - radius_y,
+            center_x + radius_x, center_y - radius_y * kappa,
+            center_x + radius_x, center_y);
+        add_head_bezier(
+            path,
+            center_x + radius_x, center_y,
+            center_x + radius_x, center_y + radius_y * kappa,
+            center_x + radius_x * kappa, center_y + radius_y,
+            center_x, center_y + radius_y);
+        add_head_bezier(
+            path,
+            center_x, center_y + radius_y,
+            center_x - radius_x * kappa, center_y + radius_y,
+            center_x - radius_x, center_y + radius_y * kappa,
+            center_x - radius_x, center_y);
+        add_head_bezier(
+            path,
+            center_x - radius_x, center_y,
+            center_x - radius_x, center_y - radius_y * kappa,
+            center_x - radius_x * kappa, center_y - radius_y,
+            center_x, center_y - radius_y);
+        path.CloseFigure();
+    };
 
-    GraphicsPath shoulders;
-    shoulders.StartFigure();
+    // An asymmetric field reads as energy, not a generic avatar tile.
+    GraphicsPath field;
+    field.StartFigure();
     add_bezier(
-        shoulders,
-        13.0F, 55.0F,
-        14.0F, 48.0F,
-        20.0F, 44.0F,
-        28.0F, 44.0F);
+        field,
+        31.5F, 2.0F,
+        44.2F, 2.0F,
+        54.3F, 8.6F,
+        59.2F, 19.7F);
     add_bezier(
-        shoulders,
-        28.0F, 44.0F,
-        36.0F, 44.0F,
-        42.0F, 48.0F,
-        45.0F, 55.0F);
-    SolidBrush shoulder_fill(
-        detail::with_alpha(detail::kAccent, 31));
-    graphics.FillPath(&shoulder_fill, &shoulders);
-    Pen shoulder_pen(
-        Color(detail::kAccent),
-        stroke_width * 1.45F);
-    shoulder_pen.SetStartCap(LineCapRound);
-    shoulder_pen.SetEndCap(LineCapRound);
-    graphics.DrawPath(&shoulder_pen, &shoulders);
+        field,
+        59.2F, 19.7F,
+        64.1F, 30.8F,
+        61.6F, 44.5F,
+        51.2F, 54.0F);
+    add_bezier(
+        field,
+        51.2F, 54.0F,
+        40.6F, 61.8F,
+        22.2F, 62.1F,
+        11.0F, 54.0F);
+    add_bezier(
+        field,
+        11.0F, 54.0F,
+        1.4F, 47.0F,
+        0.2F, 32.3F,
+        6.4F, 19.8F);
+    add_bezier(
+        field,
+        6.4F, 19.8F,
+        11.7F, 9.0F,
+        20.1F, 2.0F,
+        31.5F, 2.0F);
+    field.CloseFigure();
+    SolidBrush field_fill{Color(detail::kSurface)};
+    graphics.FillPath(&field_fill, &field);
 
-    constexpr REAL head_rx = 10.7F;
-    constexpr REAL head_ry = 11.5F;
-    constexpr REAL kappa = 0.55228475F;
-    const std::array<PointF, 13> head_points{
-        transformed({0.0F, -head_ry}),
-        transformed({head_rx * kappa, -head_ry}),
-        transformed({head_rx, -head_ry * kappa}),
-        transformed({head_rx, 0.0F}),
-        transformed({head_rx, head_ry * kappa}),
-        transformed({head_rx * kappa, head_ry}),
-        transformed({0.0F, head_ry}),
-        transformed({-head_rx * kappa, head_ry}),
-        transformed({-head_rx, head_ry * kappa}),
-        transformed({-head_rx, 0.0F}),
-        transformed({-head_rx, -head_ry * kappa}),
-        transformed({-head_rx * kappa, -head_ry}),
-        transformed({0.0F, -head_ry})};
+    // The torso is one solid shape so it stays legible at 16 px.
+    GraphicsPath torso;
+    torso.StartFigure();
+    add_bezier(
+        torso,
+        4.2F, 61.0F,
+        5.2F, 53.8F,
+        7.6F, 47.0F,
+        12.2F, 42.6F);
+    torso.AddLine(point(12.2F, 42.6F), point(19.3F, 47.1F));
+    add_bezier(
+        torso,
+        19.3F, 47.1F,
+        24.5F, 48.8F,
+        30.1F, 49.4F,
+        34.4F, 51.6F);
+    add_bezier(
+        torso,
+        34.4F, 51.6F,
+        37.9F, 53.4F,
+        39.7F, 56.8F,
+        40.4F, 61.0F);
+    torso.CloseFigure();
+    SolidBrush torso_fill{Color(detail::kAccent)};
+    graphics.FillPath(&torso_fill, &torso);
+
     GraphicsPath head;
     head.StartFigure();
-    for (std::size_t index = 0; index + 3 < head_points.size();
-         index += 3) {
-        head.AddBezier(
-            point(head_points[index].X, head_points[index].Y),
-            point(head_points[index + 1].X, head_points[index + 1].Y),
-            point(head_points[index + 2].X, head_points[index + 2].Y),
-            point(head_points[index + 3].X, head_points[index + 3].Y));
-    }
+    add_head_bezier(
+        head,
+        0.0F, -12.2F,
+        6.3F, -12.2F,
+        10.2F, -7.1F,
+        10.2F, 0.0F);
+    add_head_bezier(
+        head,
+        10.2F, 0.0F,
+        10.2F, 7.2F,
+        6.3F, 12.2F,
+        0.0F, 12.2F);
+    add_head_bezier(
+        head,
+        0.0F, 12.2F,
+        -6.3F, 12.2F,
+        -10.2F, 7.2F,
+        -10.2F, 0.0F);
+    add_head_bezier(
+        head,
+        -10.2F, 0.0F,
+        -10.2F, -7.1F,
+        -6.3F, -12.2F,
+        0.0F, -12.2F);
     head.CloseFigure();
-    SolidBrush head_fill{Color(detail::kBackground)};
-    Pen head_pen(
-        Color(detail::kText),
-        stroke_width * 1.15F);
-    head_pen.SetLineJoin(LineJoinRound);
+    SolidBrush head_fill{Color(detail::kText)};
     graphics.FillPath(&head_fill, &head);
-    graphics.DrawPath(&head_pen, &head);
 
-    SolidBrush face{Color(detail::kText)};
-    const PointF left_eye_logical = transformed({-4.2F, -1.2F});
-    const PointF right_eye_logical = transformed({4.0F, 0.2F});
-    const PointF left_eye =
-        point(left_eye_logical.X, left_eye_logical.Y);
-    const PointF right_eye =
-        point(right_eye_logical.X, right_eye_logical.Y);
-    const REAL eye_radius = 1.0F * scale;
-    graphics.FillEllipse(
-        &face,
-        left_eye.X - eye_radius,
-        left_eye.Y - eye_radius,
-        eye_radius * 2.0F,
-        eye_radius * 2.0F);
-    graphics.FillEllipse(
-        &face,
-        right_eye.X - eye_radius,
-        right_eye.Y - eye_radius,
-        eye_radius * 2.0F,
-        eye_radius * 2.0F);
+    SolidBrush face_fill{Color(detail::kInk)};
+    GraphicsPath near_eye;
+    add_head_oval(near_eye, -3.8F, -1.1F, 1.25F, 1.85F);
+    graphics.FillPath(&face_fill, &near_eye);
 
-    const PointF smile_start = transformed({-3.0F, 6.0F});
-    const PointF smile_control_1 = transformed({-1.7F, 7.8F});
-    const PointF smile_control_2 = transformed({2.0F, 7.8F});
-    const PointF smile_end = transformed({3.6F, 6.0F});
-    GraphicsPath smile;
-    smile.AddBezier(
-        point(smile_start.X, smile_start.Y),
-        point(smile_control_1.X, smile_control_1.Y),
-        point(smile_control_2.X, smile_control_2.Y),
-        point(smile_end.X, smile_end.Y));
-    Pen smile_pen(
-        Color(detail::kAccent),
-        stroke_width * 0.75F);
-    smile_pen.SetStartCap(LineCapRound);
-    smile_pen.SetEndCap(LineCapRound);
-    graphics.DrawPath(&smile_pen, &smile);
+    GraphicsPath squint;
+    squint.StartFigure();
+    squint.AddLine(head_point(2.5F, -2.7F), head_point(4.4F, -1.0F));
+    squint.AddLine(head_point(4.4F, -1.0F), head_point(2.6F, 0.9F));
+    Pen squint_pen(
+        Color(detail::kInk),
+        stroke_width * 0.60F);
+    squint_pen.SetStartCap(LineCapRound);
+    squint_pen.SetEndCap(LineCapRound);
+    squint_pen.SetLineJoin(LineJoinRound);
+    graphics.DrawPath(&squint_pen, &squint);
 
-    constexpr REAL egg_cosine = 0.7071068F;
-    constexpr REAL egg_sine = 0.7071068F;
-    const auto egg_point = [egg_cosine, egg_sine](REAL x, REAL y) {
-        return PointF(
-            46.0F + x * egg_cosine - y * egg_sine,
-            14.0F + x * egg_sine + y * egg_cosine);
+    GraphicsPath mouth;
+    add_head_oval(mouth, 0.7F, 6.1F, 2.15F, 2.9F);
+    graphics.FillPath(&face_fill, &mouth);
+
+    // The egg's diagonal is the composition's direction of travel.
+    const auto egg_point = [&point](REAL x, REAL y) {
+        constexpr REAL cosine = 0.7880108F;
+        constexpr REAL sine = 0.6156615F;
+        return point(
+            47.0F + x * cosine - y * sine,
+            18.0F + x * sine + y * cosine);
     };
-    const auto egg_path_point = [&point, &egg_point](REAL x, REAL y) {
-        const PointF local = egg_point(x, y);
-        return point(local.X, local.Y);
+    const auto add_egg_bezier = [
+                                     &egg_point](
+                                     GraphicsPath& path,
+                                     REAL x1,
+                                     REAL y1,
+                                     REAL x2,
+                                     REAL y2,
+                                     REAL x3,
+                                     REAL y3,
+                                     REAL x4,
+                                     REAL y4) {
+        path.AddBezier(
+            egg_point(x1, y1),
+            egg_point(x2, y2),
+            egg_point(x3, y3),
+            egg_point(x4, y4));
     };
-    GraphicsPath egg;
-    egg.StartFigure();
-    egg.AddBezier(
-        egg_path_point(0.0F, 12.0F),
-        egg_path_point(-4.5F, 12.0F),
-        egg_path_point(-8.5F, 6.0F),
-        egg_path_point(-8.5F, 0.0F));
-    egg.AddBezier(
-        egg_path_point(-8.5F, 0.0F),
-        egg_path_point(-8.5F, -6.0F),
-        egg_path_point(-5.0F, -12.0F),
-        egg_path_point(0.0F, -12.0F));
-    egg.AddBezier(
-        egg_path_point(0.0F, -12.0F),
-        egg_path_point(5.0F, -12.0F),
-        egg_path_point(8.5F, -6.0F),
-        egg_path_point(8.5F, 0.0F));
-    egg.AddBezier(
-        egg_path_point(8.5F, 0.0F),
-        egg_path_point(8.5F, 6.0F),
-        egg_path_point(4.5F, 12.0F),
-        egg_path_point(0.0F, 12.0F));
-    egg.CloseFigure();
-    SolidBrush shell_fill(
-        detail::with_alpha(detail::kText, 36));
-    Pen shell_pen(
-        Color(detail::kText),
-        stroke_width * 1.0F);
-    shell_pen.SetLineJoin(LineJoinRound);
-    graphics.FillPath(&shell_fill, &egg);
-    graphics.DrawPath(&shell_pen, &egg);
+    GraphicsPath shell;
+    shell.StartFigure();
+    add_egg_bezier(
+        shell,
+        0.0F, 13.5F,
+        -5.7F, 13.5F,
+        -9.0F, 7.2F,
+        -9.0F, 0.0F);
+    add_egg_bezier(
+        shell,
+        -9.0F, 0.0F,
+        -9.0F, -7.5F,
+        -5.0F, -13.5F,
+        0.0F, -13.5F);
+    add_egg_bezier(
+        shell,
+        0.0F, -13.5F,
+        5.0F, -13.5F,
+        9.0F, -7.5F,
+        9.0F, 0.0F);
+    add_egg_bezier(
+        shell,
+        9.0F, 0.0F,
+        9.0F, 7.2F,
+        5.7F, 13.5F,
+        0.0F, 13.5F);
+    shell.CloseFigure();
+    SolidBrush shell_fill{Color(detail::kText)};
+    graphics.FillPath(&shell_fill, &shell);
 
-    const PointF yolk_center = point(
-        egg_point(0.0F, -2.0F).X,
-        egg_point(0.0F, -2.0F).Y);
-    const REAL yolk_radius = 4.5F * scale;
+    const PointF yolk_center = egg_point(-2.2F, 4.2F);
+    const REAL yolk_radius = 4.8F * scale;
     SolidBrush yolk{Color(detail::kWarm)};
     graphics.FillEllipse(
         &yolk,
@@ -288,36 +300,50 @@ inline void draw_mark(
         yolk_radius * 2.0F);
 
     GraphicsPath crack;
-    crack.AddLine(
-        egg_path_point(-6.5F, 5.0F),
-        egg_path_point(-3.0F, 6.5F));
-    crack.AddLine(
-        egg_path_point(-3.0F, 6.5F),
-        egg_path_point(-0.5F, 4.5F));
-    crack.AddLine(
-        egg_path_point(-0.5F, 4.5F),
-        egg_path_point(2.0F, 7.0F));
-    crack.AddLine(
-        egg_path_point(2.0F, 7.0F),
-        egg_path_point(5.5F, 5.0F));
+    crack.StartFigure();
+    crack.AddLine(egg_point(-8.2F, -3.7F), egg_point(-5.5F, -2.2F));
+    crack.AddLine(egg_point(-5.5F, -2.2F), egg_point(-7.0F, 0.2F));
+    crack.AddLine(egg_point(-7.0F, 0.2F), egg_point(-4.3F, 2.1F));
     Pen crack_pen(
-        Color(detail::kText),
+        Color(detail::kInk),
         stroke_width * 0.68F);
     crack_pen.SetStartCap(LineCapRound);
     crack_pen.SetEndCap(LineCapRound);
     crack_pen.SetLineJoin(LineJoinRound);
     graphics.DrawPath(&crack_pen, &crack);
 
-    GraphicsPath impact;
-    impact.AddLine(point(34.0F, 23.0F), point(30.5F, 20.5F));
-    impact.AddLine(point(36.0F, 19.0F), point(35.0F, 15.0F));
-    impact.AddLine(point(37.0F, 27.5F), point(34.0F, 29.5F));
-    Pen impact_pen(
+    // A compact burst bridges the egg and forehead at small icon sizes.
+    const std::array<PointF, 10> burst_points{
+        point(31.2F, 21.8F),
+        point(33.1F, 24.1F),
+        point(36.0F, 24.3F),
+        point(33.7F, 26.2F),
+        point(34.5F, 29.1F),
+        point(31.7F, 27.5F),
+        point(28.9F, 29.4F),
+        point(29.5F, 26.4F),
+        point(27.0F, 24.7F),
+        point(30.1F, 24.3F)};
+    GraphicsPath burst;
+    burst.AddPolygon(
+        burst_points.data(),
+        static_cast<INT>(burst_points.size()));
+    SolidBrush burst_fill{Color(detail::kWarm)};
+    graphics.FillPath(&burst_fill, &burst);
+
+    GraphicsPath splashes;
+    splashes.StartFigure();
+    splashes.AddLine(point(26.9F, 22.2F), point(23.4F, 20.6F));
+    splashes.StartFigure();
+    splashes.AddLine(point(31.1F, 18.5F), point(31.2F, 15.1F));
+    splashes.StartFigure();
+    splashes.AddLine(point(35.3F, 27.8F), point(38.3F, 30.4F));
+    Pen splash_pen(
         Color(detail::kWarm),
-        stroke_width * 1.1F);
-    impact_pen.SetStartCap(LineCapRound);
-    impact_pen.SetEndCap(LineCapRound);
-    graphics.DrawPath(&impact_pen, &impact);
+        stroke_width * 0.76F);
+    splash_pen.SetStartCap(LineCapRound);
+    splash_pen.SetEndCap(LineCapRound);
+    graphics.DrawPath(&splash_pen, &splashes);
 }
 
 }  // namespace schiva::ui::brand
