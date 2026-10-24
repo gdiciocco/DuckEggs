@@ -232,15 +232,16 @@ install(
         vendor/sqlite/LICENSE.SQLite.txt
         vendor/nlohmann/LICENSE.nlohmann-json.MIT
     DESTINATION licenses)
+install(FILES docs/DEVELOPING.md DESTINATION docs)
 
 set(CPACK_PACKAGE_NAME "DuckEggs")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-alpha.1")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-alpha.2")
 set(CPACK_PACKAGE_FILE_NAME
-    "DuckEggs-${PROJECT_VERSION}-alpha.1-windows-x64")
+    "DuckEggs-${PROJECT_VERSION}-alpha.2-windows-x64")
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_SOURCE_GENERATOR "ZIP")
 set(CPACK_SOURCE_PACKAGE_FILE_NAME
-    "DuckEggs-${PROJECT_VERSION}-alpha.1-source")
+    "DuckEggs-${PROJECT_VERSION}-alpha.2-source")
 set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
 set(
     CPACK_SOURCE_IGNORE_FILES

@@ -1,4 +1,4 @@
-# Developing DuckEggs 0.4.0-alpha.1
+# Developing DuckEggs 0.4.0-alpha.2
 
 This document preserves the detailed engineering, build, and verification
 information for DuckEggs. See the [root README](../README.md) for the public
@@ -24,6 +24,18 @@ Segoe UI typography, DPI-scaled metrics and native keyboard controls. It starts
 paused and shows a clear Paused/Watching/Moving/No PiP status, Chrome PiP
 availability, learning updates, visual-signal state, and the primary
 Resume/Pause action. Learning maps and Exit are secondary actions.
+
+The product quote is presented compactly. UI updates avoid unnecessary
+refreshes to reduce flicker while runtime status changes.
+
+The header includes **To tray**, which hides the window without changing its
+current paused or running state. The notification-area icon restores the
+window; its menu provides Open, Pause/Resume and Exit. Closing the window
+exits DuckEggs.
+
+The more prominent gold **Donate** action opens the donation chooser.
+Donations are voluntary; the suggested one-time amounts are €2, €5 and €10,
+with a custom amount available through PayPal.
 
 The brand mark is the approved DuckEggs raster artwork. Its checked-in master
 PNG is authoritative; the native header renders an embedded 256 px copy (with
@@ -185,7 +197,7 @@ cpack -C Release
 ```
 
 The portable artifact is
-`DuckEggs-0.4.0-alpha.1-windows-x64.zip`. It contains the executable,
+`DuckEggs-0.4.0-alpha.2-windows-x64.zip`. It contains the executable,
 launchers, documentation, and the complete SQLite and nlohmann/json license
 and provenance files under `licenses/`.
 
