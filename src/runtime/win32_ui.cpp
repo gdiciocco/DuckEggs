@@ -37,13 +37,24 @@ constexpr int kPauseButton = 1001;
 constexpr int kLearningButton = 1002;
 constexpr int kExitButton = 1003;
 constexpr int kDonateButton = 1004;
+constexpr int kTrayButton = 1005;
 constexpr int kProfileCombo = 1101;
 constexpr int kActivityLayer = 1111;
 constexpr int kManualLayer = 1112;
 constexpr int kPlacementLayer = 1113;
+constexpr int kDonateTwoEuros = 1201;
+constexpr int kDonateFiveEuros = 1202;
+constexpr int kDonateTenEuros = 1203;
+constexpr int kDonateOther = 1204;
+constexpr int kTrayOpen = 1301;
+constexpr int kTrayPauseToggle = 1302;
+constexpr int kTrayExit = 1303;
 constexpr UINT kPanelTimer = 1;
 constexpr UINT kHeatmapTimer = 2;
 constexpr UINT kHoverMessage = WM_APP + 41;
+constexpr UINT kTrayIconMessage = WM_APP + 42;
+constexpr UINT kTrayIconId = 1;
+constexpr UINT_PTR kHoverSubclassId = 1;
 
 constexpr COLORREF kBackgroundGdi = RGB(17, 21, 28);
 constexpr COLORREF kSurfaceGdi = RGB(27, 34, 45);
@@ -62,7 +73,6 @@ constexpr ARGB kAccent = 0xff73dcc5;
 constexpr ARGB kAccentSoft = 0x3d73dcc5;
 constexpr ARGB kText = 0xffe8eef5;
 constexpr ARGB kSecondary = 0xffa3aebe;
-constexpr ARGB kMuted = 0xff768395;
 constexpr ARGB kError = 0xffff9189;
 constexpr ARGB kErrorSoft = 0x24ff9189;
 constexpr ARGB kWarm = 0xfff4c969;
@@ -73,12 +83,12 @@ constexpr ARGB kRecommendationOutline = 0xff73dcc5;
 constexpr ARGB kFootprintOutline = 0xffe8eef5;
 
 constexpr wchar_t kDonationUrl[] =
-    L"https://www.paypal.com/donate/?business=deffie83%40gmail.com";
-constexpr wchar_t kDonationRecipient[] = L"deffie83@gmail.com";
+    L"https://www.paypal.me/GiacomoDiCiocco";
 constexpr wchar_t kMainMotto[] =
     L"I was walking past a farm and a sign said, \u201cDuck, eggs.\u201d\n"
-    L"I thought, \u201cThat\u2019s an unnecessary comma\u2026\"\n"
+    L"I thought, \u201cThat\u2019s an unnecessary comma\u2026\" "
     L"\u2013 and then it hit me.";
+constexpr wchar_t kHoverProperty[] = L"DuckEggs.ButtonHover";
 
 std::wstring wide(std::string_view value) {
     if (value.empty()) {
@@ -327,6 +337,77 @@ int wrapped_text_height(
     return measure.bottom - measure.top;
 }
 
+bool move_child_if_needed(
+    HWND parent,
+    HWND child,
+    int x,
+    int y,
+    int width,
+    int height) {
+    if (child == nullptr) {
+        return false;
+    }
+    POINT target_points[2]{{x, y}, {x + width, y + height}};
+    MapWindowPoints(parent, nullptr, target_points, 2);
+    const RECT target{
+        target_points[0].x,
+        target_points[0].y,
+        target_points[1].x,
+        target_points[1].y};
+    RECT current{};
+    if (GetWindowRect(child, &current) != FALSE &&
+        EqualRect(&current, &target) != FALSE) {
+        return false;
+    }
+    MoveWindow(child, x, y, width, height, TRUE);
+    return true;
+}
+
+template <typename Draw>
+void draw_buffered(
+    HDC target,
+    const RECT& bounds,
+    Draw&& draw) {
+    const int width = bounds.right - bounds.left;
+    const int height = bounds.bottom - bounds.top;
+    if (target == nullptr || width <= 0 || height <= 0) {
+        return;
+    }
+    HDC buffer = CreateCompatibleDC(target);
+    if (buffer == nullptr) {
+        draw(target, bounds);
+        return;
+    }
+    HBITMAP bitmap = CreateCompatibleBitmap(target, width, height);
+    if (bitmap == nullptr) {
+        DeleteDC(buffer);
+        draw(target, bounds);
+        return;
+    }
+    const HGDIOBJ previous = SelectObject(buffer, bitmap);
+    if (previous == nullptr || previous == HGDI_ERROR) {
+        DeleteObject(bitmap);
+        DeleteDC(buffer);
+        draw(target, bounds);
+        return;
+    }
+    const RECT local{0, 0, width, height};
+    draw(buffer, local);
+    BitBlt(
+        target,
+        bounds.left,
+        bounds.top,
+        width,
+        height,
+        buffer,
+        0,
+        0,
+        SRCCOPY);
+    SelectObject(buffer, previous);
+    DeleteObject(bitmap);
+    DeleteDC(buffer);
+}
+
 HFONT make_font(UINT dpi, int logical_pixels, int weight) {
     return CreateFontW(
         -MulDiv(logical_pixels, static_cast<int>(dpi), 96),
@@ -478,21 +559,38 @@ LRESULT CALLBACK button_hover_proc(
     LPARAM lparam,
     UINT_PTR,
     DWORD_PTR) {
+    if (message == WM_ERASEBKGND) {
+        return 1;
+    }
     if (message == WM_MOUSEMOVE) {
-        TRACKMOUSEEVENT track{
-            sizeof(TRACKMOUSEEVENT), TME_LEAVE, window, 0};
-        TrackMouseEvent(&track);
-        SendMessageW(
-            GetParent(window),
-            kHoverMessage,
-            static_cast<WPARAM>(GetDlgCtrlID(window)),
-            1);
+        if (GetPropW(window, kHoverProperty) == nullptr) {
+            TRACKMOUSEEVENT track{
+                sizeof(TRACKMOUSEEVENT), TME_LEAVE, window, 0};
+            TrackMouseEvent(&track);
+            SetPropW(
+                window,
+                kHoverProperty,
+                reinterpret_cast<HANDLE>(
+                    static_cast<ULONG_PTR>(1)));
+            SendMessageW(
+                GetParent(window),
+                kHoverMessage,
+                static_cast<WPARAM>(GetDlgCtrlID(window)),
+                1);
+        }
     } else if (message == WM_MOUSELEAVE) {
+        RemovePropW(window, kHoverProperty);
         SendMessageW(
             GetParent(window),
             kHoverMessage,
             static_cast<WPARAM>(GetDlgCtrlID(window)),
             0);
+    } else if (message == WM_NCDESTROY) {
+        RemovePropW(window, kHoverProperty);
+        RemoveWindowSubclass(
+            window,
+            &button_hover_proc,
+            kHoverSubclassId);
     }
     return DefSubclassProc(window, message, wparam, lparam);
 }
@@ -501,7 +599,7 @@ void install_hover(HWND button) {
     SetWindowSubclass(
         button,
         &button_hover_proc,
-        static_cast<UINT_PTR>(GetDlgCtrlID(button)),
+        kHoverSubclassId,
         0);
 }
 
@@ -517,6 +615,8 @@ struct MainView {
     std::wstring visual_value{L"Waiting"};
     std::wstring visual_detail{L"Waiting for a usable visual signal."};
     std::wstring error;
+
+    bool operator==(const MainView&) const = default;
 };
 
 class HeatmapWindow;
@@ -526,10 +626,13 @@ public:
     ControlPanel(HWND window, AdaptiveApplication& application)
         : window_(window), application_(application) {
         dpi_ = dpi_for_window(window_);
+        taskbar_created_message_ =
+            RegisterWindowMessageW(L"TaskbarCreated");
         create_fonts();
         create_controls();
         SetTimer(window_, kPanelTimer, 200, nullptr);
         refresh();
+        InvalidateRect(window_, nullptr, FALSE);
     }
 
     ~ControlPanel();
@@ -565,7 +668,7 @@ private:
         badge_font_ = make_font(dpi_, 12, FW_SEMIBOLD);
         for (HWND button :
              {pause_button_, learning_button_, donate_button_,
-              exit_button_}) {
+              tray_button_, exit_button_}) {
             if (button != nullptr) {
                 SendMessageW(
                     button,
@@ -628,6 +731,7 @@ private:
         learning_button_ =
             make_button(kLearningButton, L"Learning maps");
         donate_button_ = make_button(kDonateButton, L"Donate");
+        tray_button_ = make_button(kTrayButton, L"To tray");
         exit_button_ = make_button(kExitButton, L"Exit");
         background_brush_ = CreateSolidBrush(kBackgroundGdi);
         layout_controls();
@@ -644,41 +748,50 @@ private:
         const int height = px(34);
         const int top = client.bottom - px(14) - height;
         const int pause_width = px(118);
-        MoveWindow(
+        bool changed = move_child_if_needed(
+            window_,
             pause_button_,
             margin,
             top,
             pause_width,
-            height,
-            TRUE);
+            height);
         int right = client.right - margin;
         const int exit_width = px(58);
-        MoveWindow(
+        changed |= move_child_if_needed(
+            window_,
             exit_button_,
             right - exit_width,
             top,
             exit_width,
-            height,
-            TRUE);
+            height);
         right -= exit_width + gap;
         const int donate_width = px(86);
-        MoveWindow(
+        changed |= move_child_if_needed(
+            window_,
             donate_button_,
             right - donate_width,
             top,
             donate_width,
-            height,
-            TRUE);
+            height);
         right -= donate_width + gap;
         const int learning_width = px(128);
-        MoveWindow(
+        changed |= move_child_if_needed(
+            window_,
             learning_button_,
             right - learning_width,
             top,
             learning_width,
-            height,
-            TRUE);
-        InvalidateRect(window_, nullptr, FALSE);
+            height);
+        changed |= move_child_if_needed(
+            window_,
+            tray_button_,
+            client.right - margin - px(78),
+            px(12),
+            px(78),
+            px(30));
+        if (changed) {
+            InvalidateRect(window_, nullptr, FALSE);
+        }
     }
 
     MainView current_view() const {
@@ -763,34 +876,249 @@ private:
     }
 
     void refresh() {
-        view_ = current_view();
-        SetWindowTextW(
-            pause_button_, view_.paused ? L"Resume" : L"Pause");
+        MainView next = current_view();
+        if (next == view_) {
+            return;
+        }
+        const bool pause_changed = next.paused != view_.paused;
+        view_ = std::move(next);
+        if (pause_changed) {
+            SetWindowTextW(
+                pause_button_, view_.paused ? L"Resume" : L"Pause");
+        }
         InvalidateRect(window_, nullptr, FALSE);
     }
 
     void open_heatmap();
 
-    void open_donation() const {
+    void open_donation_url(int command) const {
+        std::wstring selected_url(kDonationUrl);
+        switch (command) {
+        case kDonateTwoEuros:
+            selected_url += L"/2EUR";
+            break;
+        case kDonateFiveEuros:
+            selected_url += L"/5EUR";
+            break;
+        case kDonateTenEuros:
+            selected_url += L"/10EUR";
+            break;
+        case kDonateOther:
+            break;
+        default:
+            return;
+        }
         const HINSTANCE result = ShellExecuteW(
             window_,
             L"open",
-            kDonationUrl,
+            selected_url.c_str(),
             nullptr,
             nullptr,
             SW_SHOWNORMAL);
         if (reinterpret_cast<INT_PTR>(result) <= 32) {
             const std::wstring message =
                 L"DuckEggs could not open its PayPal donation page in the "
-                L"default browser.\n\nRecipient: " +
-                std::wstring(kDonationRecipient) +
-                L"\nLink: " + std::wstring(kDonationUrl) +
+                L"default browser.\n\nSelected URL: " +
+                selected_url +
                 L"\n\nYou can copy the link into a browser.";
             MessageBoxW(
                 window_,
                 message.c_str(),
                 L"DuckEggs donation",
                 MB_OK | MB_ICONERROR);
+        }
+    }
+
+    void open_donation() {
+        HMENU menu = CreatePopupMenu();
+        if (menu == nullptr) {
+            return;
+        }
+        AppendMenuW(menu, MF_STRING, kDonateTwoEuros, L"\u20ac2");
+        AppendMenuW(menu, MF_STRING, kDonateFiveEuros, L"\u20ac5");
+        AppendMenuW(menu, MF_STRING, kDonateTenEuros, L"\u20ac10");
+        AppendMenuW(menu, MF_STRING, kDonateOther, L"Other amount");
+
+        RECT anchor{};
+        if (GetWindowRect(donate_button_, &anchor) == FALSE) {
+            POINT cursor{};
+            GetCursorPos(&cursor);
+            anchor = RECT{cursor.x, cursor.y, cursor.x, cursor.y};
+        }
+        SetForegroundWindow(window_);
+        const UINT selected = TrackPopupMenu(
+            menu,
+            TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON |
+                TPM_BOTTOMALIGN | TPM_LEFTALIGN,
+            anchor.left,
+            anchor.bottom,
+            0,
+            window_,
+            nullptr);
+        DestroyMenu(menu);
+        PostMessageW(window_, WM_NULL, 0, 0);
+        if (selected != 0) {
+            open_donation_url(static_cast<int>(selected));
+        }
+    }
+
+    void remove_tray_icon() {
+        if (!tray_icon_added_) {
+            return;
+        }
+        NOTIFYICONDATAW icon{};
+        icon.cbSize = sizeof(icon);
+        icon.hWnd = window_;
+        icon.uID = kTrayIconId;
+        (void)Shell_NotifyIconW(NIM_DELETE, &icon);
+        tray_icon_added_ = false;
+    }
+
+    bool add_tray_icon() {
+        remove_tray_icon();
+        NOTIFYICONDATAW icon{};
+        icon.cbSize = sizeof(icon);
+        icon.hWnd = window_;
+        icon.uID = kTrayIconId;
+        icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+        icon.uCallbackMessage = kTrayIconMessage;
+        icon.hIcon = reinterpret_cast<HICON>(LoadImageW(
+            GetModuleHandleW(nullptr),
+            MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON),
+            GetSystemMetrics(SM_CYSMICON),
+            LR_DEFAULTCOLOR | LR_SHARED));
+        if (icon.hIcon == nullptr) {
+            return false;
+        }
+        lstrcpynW(
+            icon.szTip,
+            L"DuckEggs",
+            static_cast<int>(std::size(icon.szTip)));
+        if (Shell_NotifyIconW(NIM_ADD, &icon) == FALSE) {
+            return false;
+        }
+        tray_icon_added_ = true;
+        icon.uVersion = NOTIFYICON_VERSION_4;
+        if (Shell_NotifyIconW(NIM_SETVERSION, &icon) == FALSE) {
+            remove_tray_icon();
+            return false;
+        }
+        return true;
+    }
+
+    void hide_to_tray() {
+        if (hidden_to_tray_) {
+            return;
+        }
+        if (!add_tray_icon()) {
+            MessageBoxW(
+                window_,
+                L"DuckEggs could not add its notification icon, so the "
+                L"window remains open.",
+                L"DuckEggs",
+                MB_OK | MB_ICONERROR);
+            return;
+        }
+        hidden_to_tray_ = true;
+        heatmap_visible_before_tray_ =
+            heatmap_ != nullptr &&
+            IsWindowVisible(heatmap_->window()) != FALSE;
+        if (heatmap_visible_before_tray_) {
+            ShowWindow(heatmap_->window(), SW_HIDE);
+        }
+        ShowWindow(window_, SW_HIDE);
+    }
+
+    void restore_from_tray(bool re_add_failed = false) {
+        remove_tray_icon();
+        hidden_to_tray_ = false;
+        if (window_ != nullptr) {
+            ShowWindow(window_, SW_RESTORE);
+            SetForegroundWindow(window_);
+        }
+        HWND foreground = window_;
+        if (heatmap_visible_before_tray_ &&
+            heatmap_ != nullptr &&
+            IsWindow(heatmap_->window())) {
+            ShowWindow(heatmap_->window(), SW_SHOW);
+            foreground = heatmap_->window();
+        }
+        heatmap_visible_before_tray_ = false;
+        if (foreground != nullptr) {
+            SetForegroundWindow(foreground);
+        }
+        if (re_add_failed) {
+            MessageBoxW(
+                window_,
+                L"DuckEggs could not restore its notification icon after "
+                L"Explorer restarted. The window has been restored.",
+                L"DuckEggs",
+                MB_OK | MB_ICONERROR);
+        }
+    }
+
+    void show_tray_menu(int x, int y) {
+        refresh();
+        HMENU menu = CreatePopupMenu();
+        if (menu == nullptr) {
+            return;
+        }
+        AppendMenuW(menu, MF_STRING, kTrayOpen, L"Open DuckEggs");
+        AppendMenuW(
+            menu,
+            MF_STRING,
+            kTrayPauseToggle,
+            view_.paused ? L"Resume" : L"Pause");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, kTrayExit, L"Exit");
+        SetForegroundWindow(window_);
+        const UINT selected = TrackPopupMenu(
+            menu,
+            TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON |
+                TPM_LEFTALIGN | TPM_TOPALIGN,
+            x,
+            y,
+            0,
+            window_,
+            nullptr);
+        DestroyMenu(menu);
+        PostMessageW(window_, WM_NULL, 0, 0);
+        switch (selected) {
+        case kTrayOpen:
+            restore_from_tray();
+            break;
+        case kTrayPauseToggle:
+            application_.request_pause();
+            break;
+        case kTrayExit:
+            application_.request_quit();
+            DestroyWindow(window_);
+            break;
+        default:
+            break;
+        }
+    }
+
+    void handle_tray_message(WPARAM wparam, LPARAM lparam) {
+        const UINT event = LOWORD(lparam);
+        const UINT icon_id = HIWORD(lparam);
+        if (icon_id != kTrayIconId) {
+            return;
+        }
+        if (event == NIN_SELECT || event == NIN_KEYSELECT) {
+            restore_from_tray();
+        } else if (event == WM_CONTEXTMENU) {
+            int x = GET_X_LPARAM(static_cast<LPARAM>(wparam));
+            int y = GET_Y_LPARAM(static_cast<LPARAM>(wparam));
+            if (x == -1 && y == -1) {
+                POINT cursor{};
+                GetCursorPos(&cursor);
+                x = cursor.x;
+                y = cursor.y;
+            }
+            show_tray_menu(x, y);
         }
     }
 
@@ -819,6 +1147,7 @@ private:
             text_width(measure, view_.badge, badge_font_) + px(38));
         const RectF badge{
             static_cast<REAL>(client.right) - margin -
+                rpx(78) - rpx(10) -
                 static_cast<REAL>(badge_width),
             rpx(16),
             static_cast<REAL>(badge_width),
@@ -839,9 +1168,9 @@ private:
             small_font_,
             DT_CENTER | DT_TOP | DT_WORDBREAK);
         const REAL motto_height = std::clamp(
-            static_cast<REAL>(motto_text_height) + rpx(10),
-            rpx(50),
-            rpx(65));
+            static_cast<REAL>(motto_text_height) + rpx(8),
+            rpx(40),
+            rpx(54));
         const RectF motto{
             margin,
             footer_top - rpx(6) - motto_height,
@@ -1070,7 +1399,7 @@ private:
             DT_CENTER | DT_TOP | DT_WORDBREAK);
     }
 
-    void draw_button(const DRAWITEMSTRUCT& item) {
+    void paint_button(const DRAWITEMSTRUCT& item) {
         const bool selected = (item.itemState & ODS_SELECTED) != 0;
         const bool focused = (item.itemState & ODS_FOCUS) != 0;
         const bool hovered =
@@ -1088,12 +1417,10 @@ private:
         const RectF bounds = rectangle(item.rcItem);
         ARGB fill = kSurfaceRaised;
         ARGB border = kBorderStrong;
-        ARGB foreground = kText;
         COLORREF foreground_gdi = kTextGdi;
         if (item.CtlID == kPauseButton) {
             fill = selected ? 0xff5fc9b2 : kAccent;
             border = fill;
-            foreground = 0xff0d1718;
             foreground_gdi = RGB(13, 23, 24);
             if (hovered && !selected) {
                 fill = 0xff8ce7d2;
@@ -1102,18 +1429,20 @@ private:
             fill = hovered ? 0xff2a3544 : kSurfaceRaised;
             border = hovered ? kAccent : kBorderStrong;
         } else if (item.CtlID == kDonateButton) {
-            fill = hovered ? 0xff342f27 : kSurface;
-            border = hovered ? kWarm : kBorderStrong;
-            foreground = kWarm;
-            foreground_gdi = kWarmGdi;
+            fill = selected ? 0xffd8ae55
+                            : hovered ? 0xffffd77a : kWarm;
+            border = fill;
+            foreground_gdi = RGB(23, 19, 10);
+        } else if (item.CtlID == kTrayButton) {
+            fill = hovered ? kSurfaceRaised : kSurface;
+            border = hovered ? kBorderStrong : kBorder;
+            foreground_gdi = kSecondaryGdi;
         } else if (item.CtlID == kExitButton) {
             fill = hovered ? kSurfaceRaised : kSurface;
             border = hovered ? kBorderStrong : kSurface;
-            foreground = kSecondary;
             foreground_gdi = kSecondaryGdi;
         }
         if ((item.itemState & ODS_DISABLED) != 0) {
-            foreground = kMuted;
             foreground_gdi = RGB(118, 131, 149);
         }
         fill_round_rect(graphics, bounds, rpx(11), color(fill));
@@ -1139,7 +1468,30 @@ private:
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     }
 
+    void draw_button(const DRAWITEMSTRUCT& item) {
+        draw_buffered(
+            item.hDC,
+            item.rcItem,
+            [&](HDC device, const RECT& bounds) {
+                DRAWITEMSTRUCT buffered = item;
+                buffered.hDC = device;
+                buffered.rcItem = bounds;
+                paint_button(buffered);
+            });
+    }
+
     LRESULT handle(UINT message, WPARAM wparam, LPARAM lparam) {
+        if (taskbar_created_message_ != 0 &&
+            message == taskbar_created_message_) {
+            if (hidden_to_tray_ && !add_tray_icon()) {
+                restore_from_tray(true);
+            }
+            return 0;
+        }
+        if (message == kTrayIconMessage) {
+            handle_tray_message(wparam, lparam);
+            return 0;
+        }
         switch (message) {
         case WM_SIZE:
             layout_controls();
@@ -1173,13 +1525,18 @@ private:
         case kHoverMessage: {
             const int control = static_cast<int>(wparam);
             const bool entered = lparam != 0;
+            bool changed = false;
             if (entered) {
-                hovered_control_ = control;
+                if (hovered_control_ != control) {
+                    hovered_control_ = control;
+                    changed = true;
+                }
             } else if (hovered_control_ == control) {
                 hovered_control_ = 0;
+                changed = true;
             }
             HWND control_window = GetDlgItem(window_, control);
-            if (control_window != nullptr) {
+            if (changed && control_window != nullptr) {
                 InvalidateRect(control_window, nullptr, FALSE);
             }
             return 0;
@@ -1199,6 +1556,11 @@ private:
             case kDonateButton:
                 if (HIWORD(wparam) == BN_CLICKED) {
                     open_donation();
+                }
+                return 0;
+            case kTrayButton:
+                if (HIWORD(wparam) == BN_CLICKED) {
+                    hide_to_tray();
                 }
                 return 0;
             case kExitButton:
@@ -1235,32 +1597,14 @@ private:
                 RECT client{};
                 GetClientRect(window_, &client);
                 if (client.right > 0 && client.bottom > 0) {
-                    HDC buffer = CreateCompatibleDC(target);
-                    if (buffer != nullptr) {
-                        HBITMAP bitmap = CreateCompatibleBitmap(
-                            target, client.right, client.bottom);
-                        if (bitmap != nullptr) {
-                            const HGDIOBJ previous =
-                                SelectObject(buffer, bitmap);
-                            if (previous != nullptr &&
-                                previous != HGDI_ERROR) {
-                                paint_main(buffer);
-                                BitBlt(
-                                    target,
-                                    0,
-                                    0,
-                                    client.right,
-                                    client.bottom,
-                                    buffer,
-                                    0,
-                                    0,
-                                    SRCCOPY);
-                                SelectObject(buffer, previous);
-                            }
-                            DeleteObject(bitmap);
-                        }
-                        DeleteDC(buffer);
-                    }
+                    const RECT frame{
+                        0, 0, client.right, client.bottom};
+                    draw_buffered(
+                        target,
+                        frame,
+                        [&](HDC buffer, const RECT&) {
+                            paint_main(buffer);
+                        });
                 }
             }
             EndPaint(window_, &paint);
@@ -1272,6 +1616,8 @@ private:
             return 0;
         case WM_DESTROY:
             KillTimer(window_, kPanelTimer);
+            remove_tray_icon();
+            hidden_to_tray_ = false;
             PostQuitMessage(0);
             return 0;
         default:
@@ -1286,6 +1632,7 @@ private:
     HWND pause_button_{};
     HWND learning_button_{};
     HWND donate_button_{};
+    HWND tray_button_{};
     HWND exit_button_{};
     HFONT heading_font_{};
     HFONT title_font_{};
@@ -1295,7 +1642,11 @@ private:
     HFONT badge_font_{};
     HBRUSH background_brush_{};
     UINT dpi_{96};
+    UINT taskbar_created_message_{};
     int hovered_control_{};
+    bool tray_icon_added_{};
+    bool hidden_to_tray_{};
+    bool heatmap_visible_before_tray_{};
     MainView view_;
 
     friend class HeatmapWindow;
@@ -1344,6 +1695,7 @@ public:
             GetModuleHandleW(nullptr),
             this);
         if (window_ == nullptr) {
+            destroy_fonts();
             throw PlatformError("the Learning maps window could not start");
         }
     }
@@ -1617,13 +1969,13 @@ private:
             return;
         }
         const HeatmapLayout areas = layout();
-        MoveWindow(
+        bool changed = move_child_if_needed(
+            window_,
             profile_,
             static_cast<int>(areas.combo.X),
             static_cast<int>(areas.combo.Y),
             static_cast<int>(areas.combo.Width),
-            px(250),
-            TRUE);
+            px(250));
         const REAL segment_gap = rpx(4);
         const REAL activity_width = rpx(100);
         const REAL manual_width = rpx(168);
@@ -1636,48 +1988,65 @@ private:
         REAL left = areas.layer_group.X;
         HWND controls[3]{activity_, manual_, placement_};
         for (int index = 0; index < 3; ++index) {
-            MoveWindow(
+            changed |= move_child_if_needed(
+                window_,
                 controls[index],
                 static_cast<int>(left),
                 static_cast<int>(areas.layer_group.Y),
                 static_cast<int>(widths[static_cast<std::size_t>(index)]),
-                static_cast<int>(areas.layer_group.Height),
-                TRUE);
+                static_cast<int>(areas.layer_group.Height));
             left +=
                 widths[static_cast<std::size_t>(index)] + segment_gap;
         }
-        InvalidateRect(window_, nullptr, FALSE);
+        if (changed) {
+            InvalidateRect(window_, nullptr, FALSE);
+        }
     }
 
     void updated_bridge() {
-        bridge_ = application_.insights_snapshot();
+        const bool projection_before = projection_visible();
+        const Json next_bridge = application_.insights_snapshot();
         const Json candidate =
-            bridge_.contains("data") ? bridge_["data"] : Json(nullptr);
+            next_bridge.contains("data")
+                ? next_bridge["data"]
+                : Json(nullptr);
+        Json next_data = data_;
         if (candidate.is_object() &&
             heatmap::bridge_data_matches_selection(
                 candidate, selected_profile_)) {
-            data_ = candidate;
+            next_data = candidate;
             const auto resolved = heatmap::resolve_profile_key(
-                data_, selected_profile_);
+                next_data, selected_profile_);
             if (!selected_profile_.has_value() &&
                 resolved.has_value()) {
                 selected_profile_ = resolved;
                 application_.request_insights(selected_profile_);
             }
-            update_profile_choices();
         } else if (!selected_profile_.has_value() &&
                    candidate.is_object()) {
-            data_ = candidate;
+            next_data = candidate;
             const auto resolved = heatmap::resolve_profile_key(
-                data_, selected_profile_);
+                next_data, selected_profile_);
             if (resolved.has_value()) {
                 selected_profile_ = resolved;
-                update_profile_choices();
             }
         } else if (candidate.is_object()) {
-            data_ = Json(nullptr);
+            next_data = Json(nullptr);
+        } else {
+            next_data = Json(nullptr);
         }
-        layout_controls();
+        const bool changed =
+            next_bridge != bridge_ || next_data != data_;
+        if (!changed) {
+            update_profile_choices();
+            return;
+        }
+        bridge_ = next_bridge;
+        data_ = std::move(next_data);
+        update_profile_choices();
+        if (projection_visible() != projection_before) {
+            layout_controls();
+        }
         InvalidateRect(window_, nullptr, FALSE);
     }
 
@@ -1744,7 +2113,7 @@ private:
 
     void select_layer(int identifier) {
         const auto key = layer_key_for_control(identifier);
-        if (!key.has_value()) {
+        if (!key.has_value() || *key == selected_layer_) {
             return;
         }
         selected_layer_ = *key;
@@ -2369,7 +2738,7 @@ private:
         }
     }
 
-    void draw_button(const DRAWITEMSTRUCT& item) {
+    void paint_button(const DRAWITEMSTRUCT& item) {
         const auto button_layer =
             layer_key_for_control(static_cast<int>(item.CtlID));
         const bool selected =
@@ -2426,11 +2795,24 @@ private:
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     }
 
-    void draw_combo_item(const DRAWITEMSTRUCT& item) {
+    void draw_button(const DRAWITEMSTRUCT& item) {
+        draw_buffered(
+            item.hDC,
+            item.rcItem,
+            [&](HDC device, const RECT& bounds) {
+                DRAWITEMSTRUCT buffered = item;
+                buffered.hDC = device;
+                buffered.rcItem = bounds;
+                paint_button(buffered);
+            });
+    }
+
+    void paint_combo_item(const DRAWITEMSTRUCT& item) {
         const bool selected =
             (item.itemState & ODS_SELECTED) != 0;
         Graphics graphics(item.hDC);
         graphics.SetSmoothingMode(SmoothingModeAntiAlias);
+        graphics.Clear(color(kSurfaceRaised));
         SolidBrush fill(
             color(selected ? kAccentSoft : kSurfaceRaised));
         graphics.FillRectangle(&fill, rectangle(item.rcItem));
@@ -2463,6 +2845,18 @@ private:
             kTextGdi,
             body_font_,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    }
+
+    void draw_combo_item(const DRAWITEMSTRUCT& item) {
+        draw_buffered(
+            item.hDC,
+            item.rcItem,
+            [&](HDC device, const RECT& bounds) {
+                DRAWITEMSTRUCT buffered = item;
+                buffered.hDC = device;
+                buffered.rcItem = bounds;
+                paint_combo_item(buffered);
+            });
     }
 
     LRESULT handle(UINT message, WPARAM wparam, LPARAM lparam) {
@@ -2527,13 +2921,18 @@ private:
         case kHoverMessage: {
             const int control = static_cast<int>(wparam);
             const bool entered = lparam != 0;
+            bool changed = false;
             if (entered) {
-                hovered_control_ = control;
+                if (hovered_control_ != control) {
+                    hovered_control_ = control;
+                    changed = true;
+                }
             } else if (hovered_control_ == control) {
                 hovered_control_ = 0;
+                changed = true;
             }
             HWND control_window = GetDlgItem(window_, control);
-            if (control_window != nullptr) {
+            if (changed && control_window != nullptr) {
                 InvalidateRect(control_window, nullptr, FALSE);
             }
             return 0;
@@ -2585,28 +2984,24 @@ private:
         case WM_PAINT: {
             PAINTSTRUCT paint{};
             HDC target = BeginPaint(window_, &paint);
-            RECT client{};
-            GetClientRect(window_, &client);
-            HDC buffer = CreateCompatibleDC(target);
-            HBITMAP bitmap = CreateCompatibleBitmap(
-                target, client.right, client.bottom);
-            const HGDIOBJ previous =
-                SelectObject(buffer, bitmap);
-            draw_backgrounds(buffer);
-            draw_foreground_layer(buffer, layout(), layer_key());
-            BitBlt(
-                target,
-                0,
-                0,
-                client.right,
-                client.bottom,
-                buffer,
-                0,
-                0,
-                SRCCOPY);
-            SelectObject(buffer, previous);
-            DeleteObject(bitmap);
-            DeleteDC(buffer);
+            if (target != nullptr) {
+                RECT client{};
+                GetClientRect(window_, &client);
+                if (client.right > 0 && client.bottom > 0) {
+                    const RECT frame{
+                        0, 0, client.right, client.bottom};
+                    draw_buffered(
+                        target,
+                        frame,
+                        [&](HDC buffer, const RECT&) {
+                            draw_backgrounds(buffer);
+                            draw_foreground_layer(
+                                buffer,
+                                layout(),
+                                layer_key());
+                        });
+                }
+            }
             EndPaint(window_, &paint);
             return 0;
         }
@@ -2655,6 +3050,7 @@ private:
 };
 
 ControlPanel::~ControlPanel() {
+    remove_tray_icon();
     if (heatmap_ != nullptr) {
         DestroyWindow(heatmap_->window());
         heatmap_ = nullptr;
@@ -2668,6 +3064,7 @@ ControlPanel::~ControlPanel() {
 void ControlPanel::heatmap_destroyed(HWND window) {
     if (heatmap_ != nullptr && heatmap_->window() == window) {
         heatmap_ = nullptr;
+        heatmap_visible_before_tray_ = false;
     }
 }
 
