@@ -92,6 +92,11 @@ std::optional<Rect> window_rect(HWND window) {
     return result;
 }
 
+bool rect_contains_point(const Rect& rect, Point point) {
+    return point.x >= rect.left && point.x < rect.right &&
+           point.y >= rect.top && point.y < rect.bottom;
+}
+
 std::uint64_t process_creation_time(HANDLE process) {
     FILETIME creation{};
     FILETIME exit_time{};
@@ -254,6 +259,13 @@ bool window_is_cloaked(HWND window) {
                &cloaked,
                static_cast<DWORD>(sizeof(cloaked)))) ||
            cloaked != 0;
+}
+
+bool window_is_input_transparent(HWND window) {
+    const LONG_PTR extended_style =
+        GetWindowLongPtrW(window, GWL_EXSTYLE);
+    return (extended_style & WS_EX_LAYERED) != 0 &&
+           (extended_style & WS_EX_TRANSPARENT) != 0;
 }
 
 bool same_motion_identity(
@@ -1255,7 +1267,12 @@ private:
                     window_is_cloaked(window),
                     process_id != 0 && process_id == context->own_pid,
                     !class_name.empty() &&
-                        shell_or_desktop_class(class_name)}});
+                        shell_or_desktop_class(class_name),
+                    rect.has_value(),
+                    process_id != 0 &&
+                        process_id == context->own_pid &&
+                        class_name == detail::kManualPickerClass,
+                    window_is_input_transparent(window)}});
             return TRUE;
         } catch (...) {
             context->failure = std::current_exception();
@@ -1281,54 +1298,157 @@ private:
     }
 
     std::optional<ManualPointTarget> manual_target_at(Point point) {
-        const std::vector<ManualHitEntry> entries =
-            snapshot_manual_hits();
-        if (entries.empty()) {
-            return std::nullopt;
-        }
-        std::vector<ManualWindowHit> hits;
-        hits.reserve(entries.size());
-        for (const ManualHitEntry& entry : entries) {
-            hits.push_back(entry.hit);
-        }
-        const auto index = manual_hit_test(hits, point);
-        if (!index.has_value()) {
-            return std::nullopt;
-        }
-
-        const HWND handle = entries[*index].handle;
-        const auto rect = window_rect(handle);
-        if (!rect.has_value()) {
-            return std::nullopt;
-        }
-        DWORD process_id = 0;
-        GetWindowThreadProcessId(handle, &process_id);
-        const auto process = lookup_process(process_id);
-        const std::wstring class_name = window_class(handle);
-        const std::wstring title = window_title(handle);
-        WindowRecord record{
-            handle,
-            process_id,
-            class_name,
-            title,
-            process.has_value() ? process->basename : L"",
-            *rect,
-            false,
-            process.has_value() ? process->creation_time : 0};
-        const auto geometry = monitor_geometry(*rect);
-        ManualWindowEligibility eligibility =
-            manual_window_eligibility(
+        struct CurrentWindow {
+            DWORD process_id{};
+            std::wstring class_name;
+            Rect rect;
+            bool own_process{};
+            bool shell_or_desktop{};
+            bool picker_overlay{};
+            bool input_transparent{};
+        };
+        const DWORD own_pid = GetCurrentProcessId();
+        const auto read_current =
+            [own_pid](HWND handle, Point current_point)
+            -> std::optional<CurrentWindow> {
+            if (!IsWindow(handle) || !IsWindowVisible(handle) ||
+                IsIconic(handle) ||
+                GetAncestor(handle, GA_ROOT) != handle ||
+                window_is_cloaked(handle)) {
+                return std::nullopt;
+            }
+            const auto rect = window_rect(handle);
+            if (!rect.has_value() ||
+                !rect_contains_point(*rect, current_point)) {
+                return std::nullopt;
+            }
+            DWORD process_id = 0;
+            GetWindowThreadProcessId(handle, &process_id);
+            if (process_id == 0) {
+                return std::nullopt;
+            }
+            const std::wstring class_name = window_class(handle);
+            if (class_name.empty()) {
+                return std::nullopt;
+            }
+            const bool own_process = process_id == own_pid;
+            return CurrentWindow{
+                process_id,
+                class_name,
                 *rect,
-                geometry.monitor,
-                geometry.work,
-                IsZoomed(handle) != FALSE);
-        if (process_id == 0 || !process.has_value() ||
-            !valid_creation_time(process->creation_time) ||
-            process->basename.empty() || class_name.empty()) {
-            eligibility = {
-                false, "This window cannot be selected safely."};
+                own_process,
+                shell_or_desktop_class(class_name),
+                own_process &&
+                    class_name == detail::kManualPickerClass,
+                window_is_input_transparent(handle)};
+        };
+        const auto blocked_target =
+            [](HWND handle, std::string reason) {
+            DWORD process_id = 0;
+            GetWindowThreadProcessId(handle, &process_id);
+            const auto rect = window_rect(handle).value_or(Rect{});
+            return ManualPointTarget{
+                WindowRecord{
+                    handle,
+                    process_id,
+                    window_class(handle),
+                    window_title(handle),
+                    L"",
+                    rect,
+                    false,
+                    0},
+                {false, std::move(reason)}};
+        };
+
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            const std::vector<ManualHitEntry> entries =
+                snapshot_manual_hits();
+            if (entries.empty()) {
+                return std::nullopt;
+            }
+            std::vector<ManualWindowHit> hits;
+            hits.reserve(entries.size());
+            for (const ManualHitEntry& entry : entries) {
+                hits.push_back(entry.hit);
+            }
+            const auto index = manual_hit_test(hits, point);
+            if (!index.has_value()) {
+                return std::nullopt;
+            }
+
+            const HWND handle = entries[*index].handle;
+            const auto current = read_current(handle, point);
+            if (!current.has_value()) {
+                if (attempt == 0) {
+                    continue;
+                }
+                return blocked_target(
+                    handle, "This window could not be validated safely.");
+            }
+            if (current->picker_overlay || current->input_transparent) {
+                // The snapshot can race as the picker or a click-through
+                // overlay moves. Re-resolve once against the current stack.
+                if (attempt == 0) {
+                    continue;
+                }
+                return std::nullopt;
+            }
+            if (current->own_process) {
+                return blocked_target(
+                    handle,
+                    "DuckEggs' own interface cannot be selected.");
+            }
+            if (current->shell_or_desktop) {
+                return blocked_target(
+                    handle,
+                    "The Windows desktop or taskbar cannot be selected.");
+            }
+
+            const auto process = lookup_process(current->process_id);
+            const std::wstring title = window_title(handle);
+            WindowRecord record{
+                handle,
+                current->process_id,
+                current->class_name,
+                title,
+                process.has_value() ? process->basename : L"",
+                current->rect,
+                false,
+                process.has_value() ? process->creation_time : 0};
+            const auto geometry = monitor_geometry(current->rect);
+            ManualWindowEligibility eligibility =
+                manual_window_eligibility(
+                    current->rect,
+                    geometry.monitor,
+                    geometry.work,
+                    IsZoomed(handle) != FALSE);
+            if (!process.has_value() ||
+                !valid_creation_time(process->creation_time) ||
+                process->basename.empty()) {
+                eligibility = {
+                    false, "This window cannot be selected safely."};
+            }
+            // Identity and monitor queries can yield, so require the same
+            // live state and geometry once more before exposing the record
+            // for binding.
+            const auto final_state = read_current(handle, point);
+            const bool changed =
+                !final_state.has_value() ||
+                final_state->process_id != current->process_id ||
+                final_state->class_name != current->class_name ||
+                final_state->rect != current->rect ||
+                final_state->input_transparent !=
+                    current->input_transparent;
+            if (changed) {
+                if (attempt == 0) {
+                    continue;
+                }
+                return blocked_target(
+                    handle, "This window could not be validated safely.");
+            }
+            return ManualPointTarget{record, eligibility};
         }
-        return ManualPointTarget{record, eligibility};
+        return std::nullopt;
     }
 
     std::optional<ProcessIdentity> lookup_process(DWORD process_id) {

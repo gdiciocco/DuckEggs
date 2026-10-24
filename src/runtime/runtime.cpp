@@ -1287,7 +1287,8 @@ private:
     }
 
     void select_manual_target(Point point) {
-        if (loop_ == nullptr || backend_ == nullptr) {
+        if (loop_ == nullptr || backend_ == nullptr ||
+            !manual_picker_open_ || !manual_session_.load()) {
             return;
         }
         loop_->prepare_target_change();

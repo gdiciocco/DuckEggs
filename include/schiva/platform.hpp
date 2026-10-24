@@ -62,8 +62,9 @@ struct ManualHoverSnapshot {
 };
 
 // One entry per top-level window in native front-to-back z-order. The shared
-// hit test skips infrastructure windows but deliberately returns an ineligible
-// full-screen window rather than exposing a window behind it.
+// hit test skips only non-visible windows, the transient picker overlay, and
+// input-transparent layered overlays. Everything else in front of the pointer
+// blocks resolution, including DuckEggs' own main window and the shell.
 struct ManualWindowHit {
     Rect rect;
     bool visible{};
@@ -72,6 +73,9 @@ struct ManualWindowHit {
     bool cloaked{};
     bool own_process{};
     bool shell_or_desktop{};
+    bool rect_valid{true};
+    bool picker_overlay{};
+    bool input_transparent{};
 };
 
 std::optional<std::size_t> manual_hit_test(

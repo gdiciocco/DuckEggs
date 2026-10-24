@@ -7,6 +7,9 @@
 
 namespace schiva::detail {
 
+inline constexpr wchar_t kManualPickerClass[] =
+    L"DuckEggsManualPicker";
+
 struct ManualWindowIdentity {
     std::uintptr_t handle{};
     std::uint32_t process_id{};

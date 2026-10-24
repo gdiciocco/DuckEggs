@@ -2,6 +2,7 @@
 
 #ifdef _WIN32
 
+#include "../platform/manual_window_identity.hpp"
 #include "brand_mark.hpp"
 #include "schiva/heatmap.hpp"
 #include "schiva/runtime.hpp"
@@ -33,7 +34,6 @@ using namespace Gdiplus;
 
 constexpr wchar_t kPanelClass[] = L"DuckEggsControlPanel";
 constexpr wchar_t kHeatmapClass[] = L"DuckEggsLearningMaps";
-constexpr wchar_t kManualPickerClass[] = L"DuckEggsManualPicker";
 constexpr int kPauseButton = 1001;
 constexpr int kLearningButton = 1002;
 constexpr int kExitButton = 1003;
@@ -1665,7 +1665,7 @@ public:
         create_window();
         window_ = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-            kManualPickerClass,
+            detail::kManualPickerClass,
             L"DuckEggs - Click the PiP window",
             WS_POPUP | WS_CLIPCHILDREN,
             virtual_bounds_.left,
@@ -1765,34 +1765,95 @@ private:
         layout_controls();
     }
 
+    int manual_button_top(int client_bottom) const {
+        return std::max(
+            px(8),
+            client_bottom - px(54) - px(34));
+    }
+
+    RECT automatic_control_rect(
+        int client_width,
+        int client_bottom) const {
+        const int left = client_width / 2 - px(112) - px(6);
+        const int top = manual_button_top(client_bottom);
+        return {
+            left,
+            top,
+            left + px(112),
+            top + px(34)};
+    }
+
+    RECT cancel_control_rect(
+        int client_width,
+        int client_bottom) const {
+        const int left = client_width / 2 + px(6);
+        const int top = manual_button_top(client_bottom);
+        return {
+            left,
+            top,
+            left + px(112),
+            top + px(34)};
+    }
+
+    RECT action_panel_rect(
+        int client_width,
+        int client_bottom) const {
+        const RECT automatic =
+            automatic_control_rect(client_width, client_bottom);
+        const RECT cancel =
+            cancel_control_rect(client_width, client_bottom);
+        return {
+            automatic.left - px(18),
+            automatic.top - px(10),
+            cancel.right + px(18),
+            cancel.bottom + px(10)};
+    }
+
+    bool pointer_over_picker_ui(Point point) const {
+        if (window_ == nullptr) {
+            return false;
+        }
+        POINT local{point.x, point.y};
+        if (!ScreenToClient(window_, &local)) {
+            return true;
+        }
+        const auto contains = [&local](const RECT& rect) {
+            return local.x >= rect.left && local.x < rect.right &&
+                   local.y >= rect.top && local.y < rect.bottom;
+        };
+        return contains(banner_rect_) ||
+               contains(action_panel_bounds_) ||
+               contains(status_bounds_);
+    }
+
     void layout_controls() {
         if (window_ == nullptr) {
             return;
         }
         RECT client{};
         GetClientRect(window_, &client);
-        const int button_height = px(34);
-        const int button_top =
-            std::max(px(8), client.bottom - px(54) - button_height);
-        const int automatic_left =
-            client.right / 2 - px(112) - px(6);
-        const int cancel_left = client.right / 2 + px(6);
+        const int width = static_cast<int>(client.right);
+        const int bottom = static_cast<int>(client.bottom);
+        const RECT automatic =
+            automatic_control_rect(width, bottom);
+        const RECT cancel =
+            cancel_control_rect(width, bottom);
         if (automatic_ != nullptr) {
             MoveWindow(
                 automatic_,
-                automatic_left,
-                button_top,
-                px(112),
-                button_height,
+                automatic.left,
+                automatic.top,
+                automatic.right - automatic.left,
+                automatic.bottom - automatic.top,
                 TRUE);
         }
         if (cancel_ != nullptr) {
             MoveWindow(
                 cancel_,
-                cancel_left,
-                button_top,
-                px(112),
-                button_height,
+                cancel.left,
+                cancel.top,
+                cancel.right - cancel.left,
+                cancel.bottom - cancel.top,
                 TRUE);
         }
     }
@@ -1916,7 +1977,8 @@ private:
         const int width = layer_width_;
         Font heading(L"Segoe UI", rpx(15), FontStyleBold, UnitPixel);
         Font body(L"Segoe UI", rpx(13), FontStyleRegular, UnitPixel);
-        Font small(L"Segoe UI", rpx(12), FontStyleRegular, UnitPixel);
+        Font caption_font(
+            L"Segoe UI", rpx(12), FontStyleRegular, UnitPixel);
         SolidBrush text_brush(Color(255, 232, 238, 245));
         SolidBrush secondary_brush(Color(255, 190, 201, 214));
         SolidBrush panel_brush(Color(238, 17, 21, 28));
@@ -1930,6 +1992,8 @@ private:
             px(18),
             (width + banner_width) / 2,
             px(92)};
+        banner_rect_ = banner;
+        status_bounds_ = {};
         graphics.FillRectangle(&panel_brush, rectf(banner));
         draw_string(
             graphics,
@@ -1965,13 +2029,52 @@ private:
         draw_string(
             graphics,
             status,
-            small,
+            caption_font,
             secondary_brush,
             RectF(
                 static_cast<REAL>(banner.left + px(18)),
                 static_cast<REAL>(banner.top + px(40)),
                 static_cast<REAL>(banner_width - px(36)),
                 static_cast<REAL>(px(26))),
+            StringAlignmentCenter);
+
+        const RECT action_panel =
+            action_panel_rect(width, layer_height_);
+        action_panel_bounds_ = action_panel;
+        const RECT automatic =
+            automatic_control_rect(width, layer_height_);
+        const RECT cancel =
+            cancel_control_rect(width, layer_height_);
+        SolidBrush button_brush(Color(242, 32, 41, 54));
+        Pen button_border(Color(255, 59, 74, 92), rpx(1));
+        graphics.FillRectangle(&panel_brush, rectf(action_panel));
+        for (const RECT button : {automatic, cancel}) {
+            graphics.FillRectangle(&button_brush, rectf(button));
+            graphics.DrawRectangle(&button_border, rectf(button));
+        }
+        const RectF automatic_text(
+            static_cast<REAL>(automatic.left),
+            static_cast<REAL>(automatic.top),
+            static_cast<REAL>(automatic.right - automatic.left),
+            static_cast<REAL>(automatic.bottom - automatic.top));
+        const RectF cancel_text(
+            static_cast<REAL>(cancel.left),
+            static_cast<REAL>(cancel.top),
+            static_cast<REAL>(cancel.right - cancel.left),
+            static_cast<REAL>(cancel.bottom - cancel.top));
+        draw_string(
+            graphics,
+            L"Automatic",
+            caption_font,
+            text_brush,
+            automatic_text,
+            StringAlignmentCenter);
+        draw_string(
+            graphics,
+            L"Cancel",
+            caption_font,
+            text_brush,
+            cancel_text,
             StringAlignmentCenter);
 
         if (bool_field(hover, "found")) {
@@ -2019,6 +2122,7 @@ private:
                     label_top,
                     label_left + label_width,
                     label_top + px(66)};
+                status_bounds_ = label;
                 graphics.FillRectangle(&panel_brush, rectf(label));
                 draw_string(
                     graphics,
@@ -2035,7 +2139,7 @@ private:
                     eligible
                         ? L"Click once to pin this window."
                         : reason,
-                    small,
+                    caption_font,
                     eligible ? secondary_brush : text_brush,
                     RectF(
                         static_cast<REAL>(label.left + px(12)),
@@ -2137,12 +2241,29 @@ private:
         return Point{point.x, point.y};
     }
 
+    void clear_pointer_gesture() {
+        left_pressed_ = false;
+        left_armed_ = false;
+        right_pressed_ = false;
+    }
+
+    void release_pointer_capture() {
+        const bool owned =
+            window_ != nullptr && GetCapture() == window_;
+        clear_pointer_gesture();
+        if (owned) {
+            ReleaseCapture();
+        }
+    }
+
     void hide_and_cancel() {
+        release_pointer_capture();
         application_.request_manual_picker_closed();
         DestroyWindow(window_);
     }
 
     void restore_automatic() {
+        release_pointer_capture();
         application_.request_manual_reset();
         application_.request_manual_picker_closed();
         DestroyWindow(window_);
@@ -2201,12 +2322,6 @@ private:
                 break;
             }
             break;
-        case WM_PARENTNOTIFY:
-            if (LOWORD(wparam) == WM_RBUTTONDOWN) {
-                close();
-                return 0;
-            }
-            break;
         case WM_CONTEXTMENU:
             close();
             return 0;
@@ -2219,13 +2334,53 @@ private:
                 return 0;
             }
             break;
-        case WM_LBUTTONDOWN:
-            SetCapture(window_);
-            select_at(cursor_point(lparam));
-            ReleaseCapture();
+        case WM_LBUTTONDOWN: {
+            const Point point = cursor_point(lparam);
+            left_pressed_ = true;
+            left_armed_ = !pointer_over_picker_ui(point);
+            if (left_armed_) {
+                SetCapture(window_);
+            }
             return 0;
+        }
+        case WM_LBUTTONUP: {
+            const Point point = cursor_point(lparam);
+            const bool owned = GetCapture() == window_;
+            const bool select =
+                left_pressed_ && left_armed_ && owned &&
+                !pointer_over_picker_ui(point);
+            clear_pointer_gesture();
+            if (owned) {
+                ReleaseCapture();
+            }
+            if (select) {
+                select_at(point);
+            }
+            return 0;
+        }
         case WM_RBUTTONDOWN:
-            close();
+            left_pressed_ = false;
+            left_armed_ = false;
+            right_pressed_ = true;
+            SetCapture(window_);
+            return 0;
+        case WM_RBUTTONUP: {
+            const bool owned = GetCapture() == window_;
+            const bool cancel = right_pressed_ && owned;
+            clear_pointer_gesture();
+            if (owned) {
+                ReleaseCapture();
+            }
+            if (cancel) {
+                close();
+            }
+            return 0;
+        }
+        case WM_CAPTURECHANGED:
+            clear_pointer_gesture();
+            return 0;
+        case WM_CANCELMODE:
+            release_pointer_capture();
             return 0;
         case WM_KEYDOWN:
             if (wparam == VK_ESCAPE) {
@@ -2298,7 +2453,13 @@ private:
     bool hover_pending_{};
     bool selecting_{};
     bool activated_once_{};
+    bool left_pressed_{};
+    bool left_armed_{};
+    bool right_pressed_{};
     int selection_revision_{};
+    RECT banner_rect_{};
+    RECT action_panel_bounds_{};
+    RECT status_bounds_{};
 
     friend class ControlPanel;
 };
@@ -4014,7 +4175,7 @@ void register_classes() {
         LR_DEFAULTCOLOR | LR_SHARED));
     chooser.hCursor = LoadCursorW(nullptr, IDC_CROSS);
     chooser.hbrBackground = nullptr;
-    chooser.lpszClassName = kManualPickerClass;
+    chooser.lpszClassName = detail::kManualPickerClass;
     if (RegisterClassExW(&chooser) == 0 &&
         GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         throw PlatformError(

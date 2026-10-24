@@ -355,9 +355,15 @@ std::optional<std::size_t> manual_hit_test(
     for (std::size_t index = 0; index < front_to_back.size(); ++index) {
         const ManualWindowHit& window = front_to_back[index];
         if (!window.visible || !window.top_level || window.minimized ||
-            window.cloaked || window.own_process ||
-            window.shell_or_desktop) {
+            window.cloaked || window.picker_overlay ||
+            window.input_transparent) {
             continue;
+        }
+        // A visible top-level window whose geometry could not be read still
+        // blocks resolution. Falling through could select a window hidden
+        // behind it.
+        if (!window.rect_valid) {
+            return index;
         }
         if (point.x >= window.rect.left &&
             point.x < window.rect.right &&

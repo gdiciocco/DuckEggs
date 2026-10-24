@@ -338,9 +338,12 @@ void test_portable_manual_policy() {
               .eligible);
 
     const std::vector<schiva::ManualWindowHit> stacked{
-        {monitor, true, true, false, false, true, false},
-        {monitor, true, true, false, false, false, false},
-        {{-1700, 100, -500, 800}, true, true, false, false, false, false}};
+        {{-1910, 0, -1000, 500},
+         true, true, false, false, false, false, true, false, false},
+        {monitor,
+         true, true, false, false, false, false, true, false, false},
+        {{-1700, 100, -500, 800},
+         true, true, false, false, false, false, true, false, false}};
     const auto hit = schiva::manual_hit_test(stacked, {-900, 300});
     CHECK(hit.has_value());
     CHECK(*hit == 1U);
@@ -349,18 +352,56 @@ void test_portable_manual_policy() {
                .eligible);
 
     const std::vector<schiva::ManualWindowHit> owned_overlay{
-        {monitor, true, true, false, false, true, false},
-        {{-1700, 100, -500, 800}, true, true, false, false, false, false}};
+        {monitor,
+         true, true, false, false, true, false, true, true, false},
+        {{-1700, 100, -500, 800},
+         true, true, false, false, false, false, true, false, false}};
     const auto underlying =
         schiva::manual_hit_test(owned_overlay, {-900, 300});
     CHECK(underlying.has_value());
     CHECK(*underlying == 1U);
 
+    const schiva::Rect candidate{-1700, 100, -500, 800};
+    const schiva::ManualWindowHit app{
+        candidate, true, true, false, false,
+        false, false, true, false, false};
+    CHECK(schiva::manual_hit_test(
+              {{{-1700, 100, -500, 800},
+                true, true, false, false, true, false,
+                true, false, false},
+               app},
+              {-900, 300}) ==
+          std::optional<std::size_t>(0));
+    CHECK(schiva::manual_hit_test(
+              {{{-1700, 100, -500, 800},
+                true, true, false, false, false, true,
+                true, false, false},
+               app},
+              {-900, 300}) ==
+          std::optional<std::size_t>(0));
+    CHECK(schiva::manual_hit_test(
+              {{{-1700, 100, -500, 800},
+                true, true, false, false, false, false,
+                true, false, true},
+               app},
+              {-900, 300}) ==
+          std::optional<std::size_t>(1));
+    CHECK(schiva::manual_hit_test(
+              {{{-1700, 100, -500, 800},
+                true, true, false, false, false, false,
+                false, false, false},
+               app},
+              {-900, 300}) ==
+          std::optional<std::size_t>(0));
+
     const std::vector<schiva::ManualWindowHit> infrastructure{
-        {monitor, true, true, false, false, false, true},
-        {monitor, true, true, true, false, false, false},
-        {monitor, true, true, false, true, false, false},
-        {{-1700, 100, -500, 800}, true, true, false, false, false, false}};
+        {candidate,
+         false, true, false, false, false, false, true, false, false},
+        {candidate,
+         true, true, true, false, false, false, true, false, false},
+        {candidate,
+         true, true, false, true, false, false, true, false, false},
+        app};
     CHECK(schiva::manual_hit_test(infrastructure, {-900, 300}) ==
           std::optional<std::size_t>(3));
     CHECK(!schiva::manual_hit_test(infrastructure, {10, 10}).has_value());
@@ -483,10 +524,33 @@ void test_runtime_manual_commands() {
     const std::string selected_before_cancel =
         application.manual_snapshot()["selected_id"].get<std::string>();
 
+    const int selection_revision_before_late =
+        application.manual_snapshot()["selection_revision"].get<int>();
+    const int select_calls_before_late = [&state] {
+        std::lock_guard lock(state->mutex);
+        return state->select_calls;
+    }();
+    application.request_manual_selection(kEligiblePoint);
     application.request_manual_picker();
     CHECK(wait_until([&application] {
         return application.manual_snapshot()["picker_open"].get<bool>();
     }));
+    application.request_manual_hover(kEligiblePoint);
+    CHECK(wait_until([&application] {
+        const schiva::Json hover =
+            application.manual_snapshot()["hover"];
+        return hover["point"]["x"].get<int>() == kEligiblePoint.x &&
+               hover["point"]["y"].get<int>() == kEligiblePoint.y;
+    }));
+    CHECK(application.snapshot()["paused"].get<bool>());
+    CHECK(application.manual_snapshot()["selected_id"] ==
+          selected_before_cancel);
+    CHECK(application.manual_snapshot()["selection_revision"].get<int>() ==
+          selection_revision_before_late);
+    {
+        std::lock_guard lock(state->mutex);
+        CHECK(state->select_calls == select_calls_before_late);
+    }
     application.request_pause();
     application.request_manual_picker_closed();
     CHECK(wait_until([&application] {
