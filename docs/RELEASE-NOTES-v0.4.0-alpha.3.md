@@ -29,8 +29,9 @@ interface remains in English. This build is unsigned and may have rough edges
 and bugs.
 
 Learning data stays on your PC in `%LOCALAPPDATA%\DuckEggs`. DuckEggs does not
-store screenshots or include analytics. Manual window names and transient
-selection details are session-only and are never written to `status.json`.
+store screenshots or include analytics. Hovered window titles and transient
+hover details and geometry remain in memory only and are not persisted. A
+selected window binding lasts only for the current session.
 
 If something does not work as expected,
 [open a GitHub issue](https://github.com/gdiciocco/DuckEggs/issues).
