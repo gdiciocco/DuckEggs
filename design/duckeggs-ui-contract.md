@@ -68,3 +68,10 @@ silhouette and useful negative space over an ordinary boxed avatar. Preserve the
 man-hit-by-egg subject and coherent teal/white/yellow on slate colors. Native
 headers, SVG and all icon resolutions must share the same composition. No new
 runtime dependencies, backend/model changes or Python modifications are allowed.
+
+## Sumi-e selection — user update 2026-10-24
+This supersedes earlier flat/teal logo directions. Adopt the selected sumi-e
+man struck by an egg: expressive black brush ink, warm ivory, golden yolk impact
+and white shell fragments. Use a simplified, coherent head/impact version at
+small icon/header sizes, where detailed artwork would become unreadable. Preserve
+compact English UI and native scalable rendering without runtime dependencies.
