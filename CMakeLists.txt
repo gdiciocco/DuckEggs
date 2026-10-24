@@ -233,6 +233,9 @@ install(
         vendor/nlohmann/LICENSE.nlohmann-json.MIT
     DESTINATION licenses)
 install(FILES docs/DEVELOPING.md DESTINATION docs)
+install(
+    FILES resources/duckeggs-logo-256.png
+    DESTINATION resources)
 
 set(CPACK_PACKAGE_NAME "DuckEggs")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-alpha.2")

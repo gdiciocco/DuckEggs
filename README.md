@@ -1,8 +1,12 @@
 # DuckEggs
 
-> "Keeps floating Chrome videos out of your way."
+> I was walking past a farm and a sign said, “Duck, eggs.”<br>
+> I thought, “That’s an unnecessary comma…"<br>
+> – and then it hit me.
 
 <img src="resources/duckeggs-logo-256.png" alt="DuckEggs logo" width="256">
+
+**Keeps floating Chrome videos out of your way.**
 
 DuckEggs is a small Windows app that moves Chrome's picture-in-picture window
 when it gets in the way of your work. It learns where you prefer the window in
@@ -80,12 +84,6 @@ choose another amount through PayPal. Suggested one-time amounts are:
 The more prominent gold **Donate** action in DuckEggs opens the donation
 chooser. Selecting a donation opens PayPal in your browser. DuckEggs does not
 include analytics.
-
-## Why “DuckEggs”?
-
-> I was walking past a farm and a sign said, “Duck, eggs.”<br>
-> I thought, “That’s an unnecessary comma…"<br>
-> – and then it hit me.
 
 ## License
 

@@ -22,8 +22,7 @@ for release details.
 
 DuckEggs requires Windows 10 or Windows 11, 64-bit, and Google Chrome. It starts
 paused, supports one Chrome picture-in-picture window at a time, and is
-unsigned. The build may have rough edges and bugs. These notes do not claim a
-live Windows desktop or Chrome PiP validation run.
+unsigned. As an early alpha, it may have rough edges and bugs.
 
 Learning data stays on your PC in `%LOCALAPPDATA%\DuckEggs`. DuckEggs does not
 store screenshots or include analytics.
