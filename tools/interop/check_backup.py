@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import importlib.util
 import json
@@ -152,7 +153,7 @@ def run(args: argparse.Namespace) -> str:
 
         with tempfile.TemporaryDirectory(prefix="duckeggs-interop-") as directory:
             copy = Path(directory) / "learning.sqlite3"
-            with sqlite3.connect(copy) as target:
+            with contextlib.closing(sqlite3.connect(copy)) as target:
                 source.backup(target)
             source.close()
             source = None
