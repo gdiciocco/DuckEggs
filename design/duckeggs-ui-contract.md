@@ -75,3 +75,11 @@ man struck by an egg: expressive black brush ink, warm ivory, golden yolk impact
 and white shell fragments. Use a simplified, coherent head/impact version at
 small icon/header sizes, where detailed artwork would become unreadable. Preserve
 compact English UI and native scalable rendering without runtime dependencies.
+
+## Selected thumbnail05 — user update 2026-10-24
+User selected05 from the six-image sumi-e thumbnail comparison after rejecting
+the previous native/vector reinterpretation. Preserve the selected expression,
+ink hair, ivory face and golden broken-egg splash by embedding the isolated
+transparent PNG. Do not redraw it as smooth vector shapes. Resize the same art
+for actual Windows icon dimensions and native36/42px headers. No changes to
+compact layout, English UI, adaptive behavior, Python, or learning data.
