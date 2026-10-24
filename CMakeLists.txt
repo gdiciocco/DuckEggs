@@ -5,6 +5,9 @@ project(
     VERSION 0.4.0
     DESCRIPTION "DuckEggs adaptive Chrome PiP placement"
     LANGUAGES C CXX)
+if(WIN32)
+    enable_language(RC)
+endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -152,6 +155,9 @@ if(WIN32)
 endif()
 
 add_executable(DuckEggs src/main.cpp)
+if(WIN32)
+    target_sources(DuckEggs PRIVATE resources/DuckEggs.rc)
+endif()
 target_link_libraries(
     DuckEggs PRIVATE schiva_ui schiva_runtime schiva_platform)
 set_target_properties(

@@ -2,6 +2,7 @@
 
 #ifdef _WIN32
 
+#include "brand_mark.hpp"
 #include "schiva/heatmap.hpp"
 #include "schiva/runtime.hpp"
 
@@ -388,57 +389,7 @@ void draw_egg_mark(
     Graphics& graphics,
     const RectF& bounds,
     REAL stroke_width) {
-    GraphicsPath egg;
-    egg.StartFigure();
-    egg.AddBezier(
-        bounds.X + bounds.Width * 0.5F,
-        bounds.Y,
-        bounds.X + bounds.Width * 0.78F,
-        bounds.Y,
-        bounds.GetRight(),
-        bounds.Y + bounds.Height * 0.42F,
-        bounds.GetRight(),
-        bounds.Y + bounds.Height * 0.65F);
-    egg.AddBezier(
-        bounds.GetRight(),
-        bounds.Y + bounds.Height * 0.65F,
-        bounds.GetRight(),
-        bounds.Y + bounds.Height * 0.88F,
-        bounds.X + bounds.Width * 0.76F,
-        bounds.GetBottom(),
-        bounds.X + bounds.Width * 0.5F,
-        bounds.GetBottom());
-    egg.AddBezier(
-        bounds.X + bounds.Width * 0.5F,
-        bounds.GetBottom(),
-        bounds.X + bounds.Width * 0.24F,
-        bounds.GetBottom(),
-        bounds.X,
-        bounds.Y + bounds.Height * 0.88F,
-        bounds.X,
-        bounds.Y + bounds.Height * 0.65F);
-    egg.AddBezier(
-        bounds.X,
-        bounds.Y + bounds.Height * 0.65F,
-        bounds.X,
-        bounds.Y + bounds.Height * 0.42F,
-        bounds.X + bounds.Width * 0.22F,
-        bounds.Y,
-        bounds.X + bounds.Width * 0.5F,
-        bounds.Y);
-    egg.CloseFigure();
-    SolidBrush egg_fill(with_alpha(kAccent, 24));
-    Pen egg_pen(color(kAccent), stroke_width);
-    graphics.FillPath(&egg_fill, &egg);
-    graphics.DrawPath(&egg_pen, &egg);
-    SolidBrush yolk(color(kWarm));
-    const REAL yolk_size = bounds.Width * 0.24F;
-    graphics.FillEllipse(
-        &yolk,
-        bounds.X + (bounds.Width - yolk_size) / 2.0F,
-        bounds.Y + bounds.Height * 0.49F,
-        yolk_size,
-        yolk_size);
+    ui::brand::draw_mark(graphics, bounds, stroke_width);
 }
 
 void draw_status_pill(
@@ -2629,6 +2580,20 @@ void register_classes() {
     panel.style = CS_HREDRAW | CS_VREDRAW;
     panel.lpfnWndProc = &ControlPanel::window_proc;
     panel.hInstance = GetModuleHandleW(nullptr);
+    panel.hIcon = reinterpret_cast<HICON>(LoadImageW(
+        panel.hInstance,
+        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXICON),
+        GetSystemMetrics(SM_CYICON),
+        LR_DEFAULTCOLOR | LR_SHARED));
+    panel.hIconSm = reinterpret_cast<HICON>(LoadImageW(
+        panel.hInstance,
+        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON),
+        GetSystemMetrics(SM_CYSMICON),
+        LR_DEFAULTCOLOR | LR_SHARED));
     panel.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     panel.hbrBackground = nullptr;
     panel.lpszClassName = kPanelClass;
@@ -2643,6 +2608,20 @@ void register_classes() {
     maps.style = CS_HREDRAW | CS_VREDRAW;
     maps.lpfnWndProc = &HeatmapWindow::window_proc;
     maps.hInstance = GetModuleHandleW(nullptr);
+    maps.hIcon = reinterpret_cast<HICON>(LoadImageW(
+        maps.hInstance,
+        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXICON),
+        GetSystemMetrics(SM_CYICON),
+        LR_DEFAULTCOLOR | LR_SHARED));
+    maps.hIconSm = reinterpret_cast<HICON>(LoadImageW(
+        maps.hInstance,
+        MAKEINTRESOURCEW(ui::brand::kAppIconResourceId),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON),
+        GetSystemMetrics(SM_CYSMICON),
+        LR_DEFAULTCOLOR | LR_SHARED));
     maps.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     maps.hbrBackground = nullptr;
     maps.lpszClassName = kHeatmapClass;
