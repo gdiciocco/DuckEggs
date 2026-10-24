@@ -161,8 +161,8 @@ cursor coordinates, raw frames and key contents are not persisted.
 
 ## Build
 
-Requirements are CMake 3.20 or newer, a C++20 compiler and the pinned offline
-vendor files:
+Requirements are CMake 3.20 or newer for direct configuration, CMake 3.25 or
+newer for the presets, a C++20 compiler and the pinned offline vendor files:
 
 ```text
 vendor/sqlite/sqlite3.c
