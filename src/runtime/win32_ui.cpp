@@ -709,36 +709,6 @@ private:
         }
     }
 
-    void apply_fonts() {
-        for (HWND control :
-             {help_, mode_, error_, refresh_, automatic_, use_, cancel_}) {
-            if (control != nullptr) {
-                SendMessageW(
-                    control,
-                    WM_SETFONT,
-                    reinterpret_cast<WPARAM>(
-                        control == help_ || control == mode_ ||
-                                control == error_
-                            ? small_font_
-                            : semibold_font_),
-                    TRUE);
-            }
-        }
-        if (list_ != nullptr) {
-            SendMessageW(
-                list_,
-                WM_SETFONT,
-                reinterpret_cast<WPARAM>(body_font_),
-                TRUE);
-            ListView_SetColumnWidth(list_, 0, px(330));
-            ListView_SetColumnWidth(list_, 1, px(170));
-            ListView_SetColumnWidth(list_, 2, px(130));
-        }
-        if (window_ != nullptr) {
-            InvalidateRect(window_, nullptr, FALSE);
-        }
-    }
-
     HWND make_button(
         int identifier,
         const wchar_t* text) {
@@ -1758,6 +1728,33 @@ private:
         }
     }
 
+    void apply_fonts() {
+        for (HWND control :
+             {help_, mode_, error_, refresh_, automatic_, use_, cancel_}) {
+            if (control != nullptr) {
+                SendMessageW(
+                    control,
+                    WM_SETFONT,
+                    reinterpret_cast<WPARAM>(
+                        control == help_ || control == mode_ ||
+                                control == error_
+                            ? small_font_
+                            : semibold_font_),
+                    TRUE);
+            }
+        }
+        if (list_ != nullptr) {
+            SendMessageW(
+                list_,
+                WM_SETFONT,
+                reinterpret_cast<WPARAM>(body_font_),
+                TRUE);
+        }
+        if (window_ != nullptr) {
+            InvalidateRect(window_, nullptr, FALSE);
+        }
+    }
+
     void destroy_resources() {
         if (window_ != nullptr) {
             KillTimer(window_, kManualPickerTimer);
@@ -1798,7 +1795,8 @@ private:
             SS_LEFT,
             0);
         mode_ = make_control(L"STATIC", L"", SS_LEFT, 0);
-        error_ = make_control(L"STATIC", L"", SS_LEFT, 0);
+        error_ =
+            make_control(L"STATIC", L"", SS_LEFT | SS_NOPREFIX, 0);
         list_ = CreateWindowExW(
             WS_EX_CLIENTEDGE,
             WC_LISTVIEWW,
@@ -1831,7 +1829,7 @@ private:
             kManualUse);
         cancel_ = make_control(
             L"BUTTON",
-            L"Cancel",
+            L"Close",
             WS_TABSTOP | BS_PUSHBUTTON,
             kManualCancel);
         EnableWindow(use_, FALSE);
@@ -1880,7 +1878,10 @@ private:
         RECT client{};
         GetClientRect(window_, &client);
         const int margin = px(16);
-        const int width = std::max(0, client.right - margin * 2);
+        const LONG available_width =
+            std::max<LONG>(
+                0, client.right - static_cast<LONG>(margin) * 2);
+        const int width = static_cast<int>(available_width);
         const int button_height = px(34);
         const int button_top =
             client.bottom - margin - button_height;
@@ -1892,13 +1893,22 @@ private:
         };
         move(help_, margin, px(52), width, px(22));
         move(mode_, margin, px(76), width, px(34));
-        move(error_, margin, px(112), width, px(34));
+        move(error_, margin, px(112), width, px(38));
+        const int list_top = px(158);
         move(
             list_,
             margin,
-            px(154),
+            list_top,
             width,
-            std::max(px(100), button_top - px(48) - px(154)));
+            std::max(0, button_top - px(12) - list_top));
+        const int dimensions_width = px(110);
+        const int executable_width = px(150);
+        const int title_width = std::max(
+            px(120),
+            width - px(20) - executable_width - dimensions_width);
+        ListView_SetColumnWidth(list_, 0, title_width);
+        ListView_SetColumnWidth(list_, 1, executable_width);
+        ListView_SetColumnWidth(list_, 2, dimensions_width);
         const int right = client.right - margin;
         move(cancel_, right - px(90), button_top, px(90), button_height);
         move(
@@ -1977,6 +1987,27 @@ private:
         EnableWindow(use_, FALSE);
     }
 
+    static std::wstring selected_window_status(const Json& window) {
+        const std::wstring title =
+            clean_wide(
+                string_field(window, "title").value_or(""),
+                56);
+        const std::wstring executable =
+            clean_wide(
+                string_field(window, "executable").value_or(""),
+                36);
+        const int window_width = integer_field(window, "width");
+        const int window_height = integer_field(window, "height");
+        return L"Selected: " +
+               (title.empty() ? std::wstring(L"(untitled window)") : title) +
+               L"\n" +
+               (executable.empty()
+                    ? std::wstring(L"Unknown executable")
+                    : executable) +
+               L"  \u00b7  " + std::to_wstring(window_width) +
+               L" \u00d7 " + std::to_wstring(window_height);
+    }
+
     void update_bridge() {
         const Json next = application_.manual_snapshot();
         const int revision = integer_field(next, "revision");
@@ -1997,13 +2028,23 @@ private:
             bool_field(next, "supported");
         const std::string mode =
             string_field(next, "mode").value_or("automatic");
+        const std::string selected_id =
+            string_field(next, "selected_id").value_or("");
+        const Json* selected_window = nullptr;
+        if (mode == "manual" && !selected_id.empty()) {
+            for (const Json& window : windows_) {
+                if (string_field(window, "selection_token").value_or("") ==
+                    selected_id) {
+                    selected_window = &window;
+                    break;
+                }
+            }
+        }
         SetWindowTextW(
             mode_,
             mode == "manual"
-                ? L"Current mode: Manual. DuckEggs stays paused while you "
-                  L"adjust the selection."
-                : L"Current mode: Automatic Chrome discovery. DuckEggs stays "
-                  L"paused while you choose.");
+                ? L"Manual mode \u00b7 paused while choosing"
+                : L"Automatic Chrome discovery \u00b7 paused while choosing");
         std::wstring message;
         if (!supported) {
             message =
@@ -2011,18 +2052,22 @@ private:
         } else if (
             next.contains("error") && next["error"].is_string()) {
             message = clean_wide(next["error"].get<std::string>(), 260);
+        } else if (mode == "manual") {
+            if (selected_window != nullptr) {
+                message = selected_window_status(*selected_window);
+            } else {
+                message =
+                    L"Selected window lost: it is not in the current list.\n"
+                    L"Choose another window or return to Automatic.";
+            }
         } else if (windows_.empty()) {
             message =
-                L"No eligible windows are listed. Open or restore a window, "
-                L"then choose Refresh.";
-        } else if (mode == "manual") {
-            message =
-                L"The selected window is pinned for this session. You can "
-                L"choose another window or return to Automatic.";
+                L"No eligible windows are listed.\n"
+                L"Open or restore a window, then choose Refresh.";
         } else {
             message =
-                L"Choose a row, then select Use window. Refresh lists windows "
-                L"again.";
+                L"Choose a row, then select Use window.\n"
+                L"Refresh lists windows again.";
         }
         SetWindowTextW(error_, message.c_str());
         EnableWindow(refresh_, supported ? TRUE : FALSE);
@@ -2038,6 +2083,7 @@ private:
         EnableWindow(use_, FALSE);
         application_.request_manual_selection(
             tokens_[static_cast<std::size_t>(index)]);
+        SetWindowTextW(error_, L"Applying selected window...");
     }
 
     void close() {
