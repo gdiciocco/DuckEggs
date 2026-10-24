@@ -1987,25 +1987,35 @@ private:
         EnableWindow(use_, FALSE);
     }
 
-    static std::wstring selected_window_status(const Json& window) {
+    static std::wstring selected_window_status(
+        const Json& window,
+        bool last_known = false) {
         const std::wstring title =
             clean_wide(
                 string_field(window, "title").value_or(""),
-                56);
+                last_known ? 40 : 56);
         const std::wstring executable =
             clean_wide(
                 string_field(window, "executable").value_or(""),
-                36);
+                last_known ? 28 : 36);
         const int window_width = integer_field(window, "width");
         const int window_height = integer_field(window, "height");
-        return L"Selected: " +
-               (title.empty() ? std::wstring(L"(untitled window)") : title) +
-               L"\n" +
-               (executable.empty()
-                    ? std::wstring(L"Unknown executable")
-                    : executable) +
-               L"  \u00b7  " + std::to_wstring(window_width) +
-               L" \u00d7 " + std::to_wstring(window_height);
+        const std::wstring title_text =
+            title.empty() ? std::wstring(L"(untitled window)") : title;
+        const std::wstring executable_text =
+            executable.empty()
+                ? std::wstring(L"Unknown executable")
+                : executable;
+        const std::wstring dimensions_text =
+            std::to_wstring(window_width) + L" \u00d7 " +
+            std::to_wstring(window_height);
+        if (last_known) {
+            return L"Manual target remains selected.\nLast known: " +
+                   title_text + L" \u00b7 " + executable_text +
+                   L" \u00b7 " + dimensions_text;
+        }
+        return L"Selected: " + title_text + L"\n" +
+               executable_text + L"  \u00b7  " + dimensions_text;
     }
 
     void update_bridge() {
@@ -2028,10 +2038,14 @@ private:
             bool_field(next, "supported");
         const std::string mode =
             string_field(next, "mode").value_or("automatic");
+        const std::optional<std::string> selected_id_value =
+            string_field(next, "selected_id");
         const std::string selected_id =
-            string_field(next, "selected_id").value_or("");
+            selected_id_value.value_or("");
+        const bool has_selected_id =
+            selected_id_value.has_value() && !selected_id.empty();
         const Json* selected_window = nullptr;
-        if (mode == "manual" && !selected_id.empty()) {
+        if (mode == "manual" && has_selected_id) {
             for (const Json& window : windows_) {
                 if (string_field(window, "selection_token").value_or("") ==
                     selected_id) {
@@ -2039,6 +2053,18 @@ private:
                     break;
                 }
             }
+        }
+        // Refreshing rotates candidate tokens while the backend binding keeps
+        // its original selected_id. Retain the exact row as last-known state.
+        if (mode != "manual" || !has_selected_id) {
+            cached_selected_id_.clear();
+            cached_selected_window_.reset();
+        } else if (selected_window != nullptr) {
+            cached_selected_id_ = selected_id;
+            cached_selected_window_ = *selected_window;
+        } else if (cached_selected_id_ != selected_id) {
+            cached_selected_id_.clear();
+            cached_selected_window_.reset();
         }
         SetWindowTextW(
             mode_,
@@ -2055,10 +2081,19 @@ private:
         } else if (mode == "manual") {
             if (selected_window != nullptr) {
                 message = selected_window_status(*selected_window);
-            } else {
+            } else if (!has_selected_id) {
                 message =
                     L"Selected window lost: it is not in the current list.\n"
                     L"Choose another window or return to Automatic.";
+            } else if (
+                cached_selected_window_.has_value() &&
+                cached_selected_id_ == selected_id) {
+                message = selected_window_status(
+                    *cached_selected_window_, true);
+            } else {
+                message =
+                    L"Manual target remains selected.\n"
+                    L"Refresh or return to Automatic.";
             }
         } else if (windows_.empty()) {
             message =
@@ -2129,6 +2164,9 @@ private:
             case kManualAutomatic:
                 if (HIWORD(wparam) == BN_CLICKED) {
                     application_.request_manual_reset();
+                    // Reset clears the candidate registry, so enumerate again
+                    // before the retained list can be used.
+                    application_.request_manual_refresh();
                 }
                 return 0;
             case kManualUse:
@@ -2234,6 +2272,8 @@ private:
     Json bridge_ = Json::object();
     Json windows_ = Json::array();
     std::vector<std::string> tokens_;
+    std::string cached_selected_id_;
+    std::optional<Json> cached_selected_window_;
 
     friend class ControlPanel;
 };

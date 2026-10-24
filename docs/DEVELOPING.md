@@ -30,10 +30,11 @@ Resume/Pause action. Learning maps and Exit are secondary actions.
 The compact footer also includes **Choose PiP...**. It opens a paced native
 chooser that lists eligible visible top-level windows by title, executable and
 dimensions. No row is selected by default and **Use window** stays disabled
-until the user selects one. **Refresh** performs an explicit owner-thread
-enumeration, **Automatic** resets to default Chrome discovery, and **Cancel**
-closes the chooser. Opening, selecting, resetting, or closing the chooser
-leaves DuckEggs paused; Resume remains a separate action.
+until the user selects one. Using a row applies that target and leaves the
+chooser open. **Refresh** performs an explicit owner-thread enumeration,
+**Automatic** resets to default Chrome discovery, and **Close** closes the
+chooser. Opening, selecting, resetting, or closing the chooser leaves DuckEggs
+paused; close the chooser before Resume.
 
 The product quote is presented compactly. UI updates avoid unnecessary
 refreshes to reduce flicker while runtime status changes.

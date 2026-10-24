@@ -67,8 +67,9 @@ Right-click that icon to open DuckEggs, pause or resume it, or exit.
 
 **Choose PiP...** opens a refreshed list of eligible visible windows with each
 window's title, executable, and dimensions. Choose a row, then click **Use
-window**. **Automatic** returns to Chrome-only discovery, and **Cancel** closes
-the chooser. The chooser never captures or previews the selected window.
+window**; the chooser stays open. **Automatic** returns to Chrome-only
+discovery, and **Close** closes the chooser. Close the chooser before clicking
+**Resume**. The chooser never captures or previews the selected window.
 
 Closing the window still exits DuckEggs.
 
