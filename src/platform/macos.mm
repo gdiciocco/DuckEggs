@@ -1,6 +1,7 @@
 #include "schiva/platform.hpp"
 
 #include "macos_shared.hpp"
+#include "macos_visual.hpp"
 
 #include <ApplicationServices/ApplicationServices.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -465,6 +466,15 @@ std::optional<Rect> screen_work_area(
                 point.y >= screen.frame.top && point.y < screen.frame.bottom &&
                 screen.visible_frame.width() > 0 &&
                 screen.visible_frame.height() > 0) {
+                const auto display = static_cast<CGDirectDisplayID>(screen.display_id);
+                if (!CGDisplayIsActive(display)) continue;
+                const Rect current_frame = integer_rect(CGDisplayBounds(display));
+                if (current_frame.left != screen.frame.left ||
+                    current_frame.top != screen.frame.top ||
+                    current_frame.right != screen.frame.right ||
+                    current_frame.bottom != screen.frame.bottom) {
+                    continue;
+                }
                 if (from_ui != nullptr) *from_ui = true;
                 return screen.visible_frame;
             }
@@ -546,34 +556,8 @@ std::optional<VisualFrame> capture_legacy(
         options);
     auto image = own_cf(raw);
     if (!image) return std::nullopt;
-    const size_t width = kCaptureWidth;
-    const size_t height = kCaptureHeight;
-    std::vector<std::uint8_t> pixels(width * height, 0);
-    auto color = own_cf(CGColorSpaceCreateDeviceGray());
-    if (!color) return std::nullopt;
-    CGContextRef context_raw = CGBitmapContextCreate(
-        pixels.data(), width, height, 8, width, color.get(),
-        kCGImageAlphaNone);
-    auto context = own_cf(context_raw);
-    if (!context) return std::nullopt;
-    CGContextSetInterpolationQuality(context.get(), kCGInterpolationLow);
-    CGContextTranslateCTM(context.get(), 0, height);
-    CGContextScaleCTM(context.get(),
-        static_cast<CGFloat>(width) / CGImageGetWidth(image.get()),
-        -static_cast<CGFloat>(height) / CGImageGetHeight(image.get()));
-    CGContextDrawImage(
-        context.get(),
-        CGRectMake(0, 0, CGImageGetWidth(image.get()), CGImageGetHeight(image.get())),
-        image.get());
-    std::vector<Rect> excluded;
-    excluded.reserve(masks.size());
-    for (const Rect& mask : masks) {
-        if (const auto clipped = clipped_intersection(mask, bounds)) {
-            excluded.push_back(*clipped);
-        }
-    }
-    return VisualFrame{kCaptureWidth, kCaptureHeight, std::move(pixels),
-                       bounds, std::move(excluded)};
+    return detail::macos_visual_frame_from_image(
+        image.get(), kCaptureWidth, kCaptureHeight, bounds, masks);
 }
 
 #if DUCKEGGS_HAS_SCREEN_CAPTURE_KIT
@@ -689,27 +673,8 @@ std::optional<VisualFrame> capture_screenkit(
         });
     if (!captured || !*captured || !captured->get()) return std::nullopt;
     auto image = std::move(*captured);
-    std::vector<std::uint8_t> pixels(
-        static_cast<std::size_t>(kCaptureWidth * kCaptureHeight), 0);
-    auto color = own_cf(CGColorSpaceCreateDeviceGray());
-    if (!color) return std::nullopt;
-    auto context = own_cf(CGBitmapContextCreate(
-        pixels.data(), kCaptureWidth, kCaptureHeight, 8, kCaptureWidth,
-        color.get(), kCGImageAlphaNone));
-    if (!context) return std::nullopt;
-    CGContextSetInterpolationQuality(context.get(), kCGInterpolationLow);
-    CGContextTranslateCTM(context.get(), 0, kCaptureHeight);
-    CGContextScaleCTM(context.get(), 1, -1);
-    CGContextDrawImage(context.get(),
-        CGRectMake(0, 0, kCaptureWidth, kCaptureHeight), image.get());
-    std::vector<Rect> excluded_masks;
-    for (const Rect& mask : masks) {
-        if (const auto clipped = clipped_intersection(mask, bounds)) {
-            excluded_masks.push_back(*clipped);
-        }
-    }
-    return VisualFrame{kCaptureWidth, kCaptureHeight, std::move(pixels),
-                       bounds, std::move(excluded_masks)};
+    return detail::macos_visual_frame_from_image(
+        image.get(), kCaptureWidth, kCaptureHeight, bounds, masks);
 }
 #endif
 

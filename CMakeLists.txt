@@ -211,6 +211,69 @@ set_target_properties(
     DuckEggs PROPERTIES
     OUTPUT_NAME "DuckEggs"
     WIN32_EXECUTABLE TRUE)
+if(APPLE)
+    set(MACOSX_BUNDLE_EXECUTABLE_NAME "DuckEggs")
+    set(MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.gdiciocco.DuckEggs")
+    set(MACOSX_BUNDLE_BUNDLE_NAME "DuckEggs")
+    set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
+    set(MACOSX_BUNDLE_BUNDLE_VERSION "6")
+    configure_file(
+        resources/macos/Info.plist.in
+        "${CMAKE_CURRENT_BINARY_DIR}/DuckEggs-Info.plist"
+        @ONLY)
+
+    set(DUCKEGGS_MACOS_ICONSET_DIR
+        "${CMAKE_CURRENT_BINARY_DIR}/DuckEggs.iconset")
+    set(DUCKEGGS_MACOS_ICNS
+        "${CMAKE_CURRENT_BINARY_DIR}/DuckEggs.icns")
+    add_custom_command(
+        OUTPUT "${DUCKEGGS_MACOS_ICNS}"
+        COMMAND /bin/bash
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_macos_icon.sh"
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources/duckeggs-logo-master.png"
+            "${DUCKEGGS_MACOS_ICONSET_DIR}"
+            "${DUCKEGGS_MACOS_ICNS}"
+        DEPENDS
+            tools/build_macos_icon.sh
+            resources/duckeggs-logo-master.png
+        VERBATIM)
+    set_source_files_properties(
+        "${DUCKEGGS_MACOS_ICNS}"
+        resources/duckeggs-logo-256.png
+        PROPERTIES
+            GENERATED TRUE
+            HEADER_FILE_ONLY TRUE
+            MACOSX_PACKAGE_LOCATION Resources)
+    set(DUCKEGGS_BUNDLE_NOTICES
+        LICENSE
+        THIRD_PARTY.md
+        vendor/PROVENANCE.txt
+        vendor/sqlite/LICENSE.SQLite.txt
+        vendor/nlohmann/LICENSE.nlohmann-json.MIT
+        vendor/LICENSE.Chromium.BSD)
+    set_source_files_properties(
+        ${DUCKEGGS_BUNDLE_NOTICES}
+        PROPERTIES
+            HEADER_FILE_ONLY TRUE
+            MACOSX_PACKAGE_LOCATION Resources/licenses)
+    target_sources(
+        DuckEggs PRIVATE
+            "${DUCKEGGS_MACOS_ICNS}"
+            resources/duckeggs-logo-256.png
+            ${DUCKEGGS_BUNDLE_NOTICES})
+    set_target_properties(
+        DuckEggs PROPERTIES
+            MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_INFO_PLIST
+                "${CMAKE_CURRENT_BINARY_DIR}/DuckEggs-Info.plist"
+            MACOSX_BUNDLE_ICON_FILE DuckEggs.icns
+            MACOSX_BUNDLE_GUI_IDENTIFIER
+                "${MACOSX_BUNDLE_GUI_IDENTIFIER}"
+            MACOSX_BUNDLE_BUNDLE_NAME "${MACOSX_BUNDLE_BUNDLE_NAME}"
+            MACOSX_BUNDLE_SHORT_VERSION_STRING
+                "${MACOSX_BUNDLE_SHORT_VERSION_STRING}"
+            MACOSX_BUNDLE_BUNDLE_VERSION "${MACOSX_BUNDLE_BUNDLE_VERSION}")
+endif()
 if(SCHIVA_BUILD_TESTS)
     include(CTest)
 
@@ -278,7 +341,17 @@ if(SCHIVA_BUILD_TESTS)
     endif()
 
     if(APPLE)
-        add_test(NAME native_probe COMMAND DuckEggs --probe)
+        add_executable(test_macos tests/test_macos.cpp)
+        target_include_directories(
+            test_macos PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        target_link_libraries(
+            test_macos PRIVATE
+                schiva_core
+                "${SCHIVA_CORE_GRAPHICS_FRAMEWORK}")
+        add_test(NAME test_macos COMMAND test_macos)
+        add_test(
+            NAME native_probe
+            COMMAND "$<TARGET_FILE:DuckEggs>" --probe)
     elseif(NOT WIN32)
         add_test(NAME unsupported_native_probe COMMAND DuckEggs --probe)
         set_tests_properties(
@@ -286,16 +359,21 @@ if(SCHIVA_BUILD_TESTS)
     endif()
 endif()
 
-install(TARGETS DuckEggs RUNTIME DESTINATION .)
+if(APPLE)
+    install(TARGETS DuckEggs BUNDLE DESTINATION .)
+else()
+    install(TARGETS DuckEggs RUNTIME DESTINATION .)
+endif()
 install(
     FILES
         README.md
         CONTRIBUTING.md
         LICENSE
         THIRD_PARTY.md
-        Start-DuckEggs.cmd
-        Stop-DuckEggs.cmd
     DESTINATION .)
+if(WIN32)
+    install(FILES Start-DuckEggs.cmd Stop-DuckEggs.cmd DESTINATION .)
+endif()
 install(
     FILES
         vendor/PROVENANCE.txt
@@ -303,19 +381,39 @@ install(
         vendor/nlohmann/LICENSE.nlohmann-json.MIT
         vendor/LICENSE.Chromium.BSD
     DESTINATION licenses)
-install(FILES docs/DEVELOPING.md DESTINATION docs)
+install(
+    FILES
+        docs/DEVELOPING.md
+        docs/RELEASE-NOTES-v0.4.0-alpha.6.md
+    DESTINATION docs)
+if(APPLE)
+    install(FILES docs/MACOS.md DESTINATION docs)
+endif()
 install(
     FILES resources/duckeggs-logo-256.png
     DESTINATION resources)
 
 set(CPACK_PACKAGE_NAME "DuckEggs")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-alpha.5")
-set(CPACK_PACKAGE_FILE_NAME
-    "DuckEggs-${PROJECT_VERSION}-alpha.5-windows-x64")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-alpha.6")
+if(WIN32)
+    set(CPACK_PACKAGE_FILE_NAME
+        "DuckEggs-${PROJECT_VERSION}-alpha.6-windows-x64")
+elseif(APPLE)
+    if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64;arm64")
+        set(CPACK_PACKAGE_FILE_NAME
+            "DuckEggs-${PROJECT_VERSION}-alpha.6-macos-universal")
+    else()
+        set(CPACK_PACKAGE_FILE_NAME
+            "DuckEggs-${PROJECT_VERSION}-alpha.6-macos-intel")
+    endif()
+else()
+    set(CPACK_PACKAGE_FILE_NAME
+        "DuckEggs-${PROJECT_VERSION}-alpha.6-linux-core")
+endif()
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_SOURCE_GENERATOR "ZIP")
 set(CPACK_SOURCE_PACKAGE_FILE_NAME
-    "DuckEggs-${PROJECT_VERSION}-alpha.5-source")
+    "DuckEggs-${PROJECT_VERSION}-alpha.6-source")
 set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
 set(
     CPACK_SOURCE_IGNORE_FILES

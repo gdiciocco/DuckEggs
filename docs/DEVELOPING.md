@@ -1,4 +1,4 @@
-# Developing DuckEggs 0.4.0-alpha.5
+# Developing DuckEggs 0.4.0-alpha.6
 
 This document preserves the detailed engineering, build, and verification
 information for DuckEggs. See the [root README](../README.md) for the public
@@ -13,19 +13,19 @@ another browser or application after explicit selection.
 The product interface is entirely in English. Internal `schiva` namespaces and
 header paths remain frozen for compatibility with the ported core.
 
-Windows is the implemented native backend. Linux and macOS builds include the
-portable core, command-line actions and tests, but report an explicit
+Windows and macOS have native window adapters. Linux builds include the
+portable core, command-line actions and tests, and report an explicit
 unsupported-native error. DuckEggs does not bundle or start Python, Qt, a
 browser, a web view, a server, a scripting runtime, an interpreter or
 telemetry.
 
 ## Interface
 
-The compact DuckEggs window uses a dark neutral interface with teal accents,
-Segoe UI typography, DPI-scaled metrics and native keyboard controls. It starts
-paused and shows a clear Paused/Watching/Moving/No target status, target
-availability, learning updates, visual-signal state, and the primary
-Resume/Pause action. Learning maps and Exit are secondary actions.
+The compact DuckEggs window uses a dark neutral interface with teal accents
+and native controls. It starts paused and shows Paused/Watching/Moving/No
+target status, permission state and cumulative learning updates. Learning maps
+and Quit are secondary actions. The Windows interface uses DPI-scaled Segoe UI;
+the macOS interface uses AppKit controls and system typography.
 
 The compact footer also includes **Choose Window**. It opens a paced native
 desktop picking overlay. Hovering a window shows its title and either a teal
@@ -103,7 +103,11 @@ The viewer requests a detached snapshot about once per second while open.
 Requests are deferred while DuckEggs is moving the PiP. Refreshes do not focus
 or activate the viewer.
 
-## Safety model
+## Windows safety model
+
+These native identity and topmost-lease details describe the Windows backend.
+For macOS permission, movement, and public-API limits, see the
+[macOS notes](MACOS.md).
 
 - Automatic mode accepts as a candidate only a visible, top-level `chrome.exe`
   window with class `Chrome_WidgetWin_1` and the complete localized PiP title.
@@ -293,10 +297,24 @@ cd out\build\windows-msvc
 cpack -C Release
 ```
 
-The portable artifact is
-`DuckEggs-0.4.0-alpha.5-windows-x64.zip`. It contains the executable,
-launchers, documentation, and the complete SQLite and nlohmann/json license
-and provenance files under `licenses/`.
+The Windows artifact is
+`DuckEggs-0.4.0-alpha.6-windows-x64.zip`. On macOS, configure and package the
+universal app with:
+
+```sh
+cmake --preset macos-universal
+cmake --build --preset macos-universal --parallel
+ctest --preset macos-universal
+cpack --preset macos-universal
+```
+
+The macOS ZIP contains `DuckEggs.app`, the approved 256 px PNG and generated
+`DuckEggs.icns`, user and developer documentation, and license/provenance
+notices both beside and inside the app bundle. `tools/build_macos_icon.sh`
+uses only macOS `sips` and `iconutil`. It verifies the approved master PNG
+SHA-256 and 1254 by 1254 dimensions, then uses the established 1205 px square
+viewport at x=28, y=32. It never rewrites the master or Windows assets. The
+app is ad-hoc signed in CI, without Developer ID signing or notarization.
 
 Python is optional and is used only in development/CI to compare the parity
 runner's JSON with `tests/fixtures/core-parity.json`. It is not a DuckEggs
@@ -316,13 +334,21 @@ selection, full-screen rejection without selecting behind it, cancellation,
 rapid reopen, explicit selection/reset, manual-target loss without automatic
 fallback, and portable identity/eligibility/hit-test policies. It does not
 control a real desktop window.
-The core tests cover model, storage, controller and visual behavior.
+On macOS, `test_macos` exercises the actual Cocoa-to-Quartz conversion helper
+for displays left of and above the primary display and sends an asymmetric
+synthetic CGImage through the production grayscale converter to check its
+top-left row orientation and mask clipping. It does not request TCC access or
+capture a desktop. The core tests cover model, storage, controller and visual
+behavior.
 `core_parity` compares the complete C++ fixture output against the pinned
 Python reference when Python is available at configure time.
 
-The Windows CI job builds and runs the release tests and produces the portable
-ZIP. The Linux CI job builds and runs the portable core and unsupported-native
-tests. Linux and macOS do not claim a desktop adapter.
+Windows CI builds and tests the portable release ZIP. Linux CI runs the
+portable core and unsupported-native checks. The macOS Intel and universal CI
+jobs build, test, run a read-only probe, inspect architectures and deployment
+metadata, and perform a timed paused GUI start/stop when WindowServer is
+available. The universal job packages an ad-hoc-signed ZIP artifact. CI does
+not grant TCC permissions or move other application windows.
 
 Source inspection and portable tests are not hardware validation. MSVC
 compilation, dependency inspection, package hashing, and actual desktop/PiP
@@ -332,7 +358,11 @@ here.
 
 ## Known limitations
 
-- Windows is the only native adapter.
+- Automatic target discovery remains Chrome-only on both native platforms.
+- macOS cannot force another application's window above every other app using
+  public APIs; manual selection does not guarantee an always-on-top result.
+- macOS GUI appearance, TCC grants, Catalina runtime behavior and real PiP
+  movement require manual validation on the relevant hardware and OS.
 - Manual selection is session-only and is not restored after restart.
 - Caret/UI Automation acquisition is not implemented.
 - GDI capture cannot inspect occluded content, protected video or the area

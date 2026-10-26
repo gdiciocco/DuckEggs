@@ -24,11 +24,12 @@ constexpr std::string_view kHelp = R"(DuckEggs - adaptive placement for Chrome P
 DuckEggs learns where a Picture-in-Picture window fits your work and moves it
 only when the shared adaptive model identifies a safe destination.
 
-Windows is the native backend. Linux and macOS builds include the portable
-core, command-line actions and tests, but report unsupported native access.
+Windows and macOS have native window backends. Linux builds include the
+portable core, command-line actions and tests, but report unsupported native
+access.
 
 Usage:
-  DuckEggs.exe [OPTIONS]
+  DuckEggs [OPTIONS]
 
 Actions:
   --help                  Show this help without starting DuckEggs

@@ -730,8 +730,11 @@ void test_runtime_manual_commands() {
     application.request_manual_picker_closed();
     CHECK(wait_until([&application] {
         const schiva::Json manual = application.manual_snapshot();
+        const schiva::Json status = application.snapshot();
         return !manual["picker_open"].get<bool>() &&
-               manual["mode"] == "automatic";
+               manual["mode"] == "automatic" &&
+               status["paused"].get<bool>() &&
+               status["placement_mode"] == "automatic";
     }));
     CHECK(application.snapshot()["paused"].get<bool>());
     CHECK(application.snapshot()["placement_mode"] == "automatic");

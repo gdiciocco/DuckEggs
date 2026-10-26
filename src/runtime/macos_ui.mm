@@ -135,7 +135,6 @@ NSURL *privacy_url(NSString *pane) {
   NSSegmentedControl *_layers;
   NSView *_mapCanvas;
   NSMutableArray<NSPanel *> *_picker;
-  std::vector<NSRect> _screenFrames;
   std::vector<std::uint32_t> _pickerIds;
   std::optional<std::string> _profile;
   std::string _layer;
@@ -301,6 +300,7 @@ NSURL *privacy_url(NSString *pane) {
 }
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
   (void)note;
+  NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
   [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
   [self publishScreens];
   [self buildMain];
@@ -318,16 +318,12 @@ NSURL *privacy_url(NSString *pane) {
   NSArray<NSScreen *> *screens = NSScreen.screens;
   if (!screens.count) {
     detail::clear_macos_screens();
-    _screenFrames.clear();
     return;
   }
   _primaryHeight_ = NSMaxY(screens[0].frame);
   std::vector<detail::MacScreenGeometry> published;
-  std::vector<NSRect> frames;
   for (NSScreen *s in screens) {
     NSRect f = s.frame, v = s.visibleFrame;
-    frames.push_back(f);
-    frames.push_back(v);
     NSNumber *n = s.deviceDescription[@"NSScreenNumber"];
     detail::MacScreenGeometry x;
     x.display_id = n.unsignedIntValue;
@@ -335,12 +331,7 @@ NSURL *privacy_url(NSString *pane) {
     x.visible_frame = quartz_rect(v, _primaryHeight_);
     published.push_back(x);
   }
-  if (frames.size() != _screenFrames.size() ||
-      !std::equal(frames.begin(), frames.end(), _screenFrames.begin(),
-                  [](NSRect a, NSRect b) { return NSEqualRects(a, b); })) {
-    detail::publish_macos_screens(std::move(published));
-    _screenFrames = std::move(frames);
-  }
+  detail::publish_macos_screens(std::move(published));
 }
 - (void)publishPickerIDs {
   std::vector<std::uint32_t> ids;
@@ -374,8 +365,11 @@ NSURL *privacy_url(NSString *pane) {
   logo.image = image;
   logo.imageScaling = NSImageScaleProportionallyUpOrDown;
   [v addSubview:logo];
-  [v addSubview:make_label(kMotto, NSMakeRect(78, 291, 500, 52), 13,
-                           [NSColor colorWithWhite:.91 alpha:1])];
+  NSTextField *motto = make_label(kMotto, NSMakeRect(78, 291, 500, 52), 13,
+                                 [NSColor colorWithWhite:.91 alpha:1]);
+  motto.lineBreakMode = NSLineBreakByWordWrapping;
+  motto.maximumNumberOfLines = 3;
+  [v addSubview:motto];
   _state = make_label(@"Starting safely…", NSMakeRect(26, 253, 548, 23), 15,
                       [NSColor colorWithCalibratedRed:.45
                                                 green:.86

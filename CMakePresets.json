@@ -122,6 +122,20 @@
       "configurations": [
         "Release"
       ]
+    },
+    {
+      "name": "macos-universal",
+      "configurePreset": "macos-universal",
+      "generators": [
+        "ZIP"
+      ]
+    },
+    {
+      "name": "macos-intel",
+      "configurePreset": "macos-intel",
+      "generators": [
+        "ZIP"
+      ]
     }
   ]
 }

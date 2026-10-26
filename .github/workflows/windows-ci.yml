@@ -52,12 +52,58 @@ jobs:
         run: ctest --preset macos-universal
       - name: Native capability probe (no capture or permission prompt)
         run: |
-          ./out/build/macos-universal/DuckEggs --probe > probe.json
+          ./out/build/macos-universal/DuckEggs.app/Contents/MacOS/DuckEggs --probe > probe.json
           python3 -c 'import json; d=json.load(open("probe.json")); assert d["supported"] is True; assert d["capture_performed"] is False'
+          python3 -c 'import plistlib; p=plistlib.load(open("out/build/macos-universal/DuckEggs.app/Contents/Info.plist","rb")); assert p["CFBundleIdentifier"] == "io.github.gdiciocco.DuckEggs"; assert p["CFBundleExecutable"] == "DuckEggs"; assert p["CFBundleVersion"] == "6"; assert p["CFBundleShortVersionString"] == "0.4.0"; assert p["LSMinimumSystemVersion"] == "10.15"'
       - name: Verify universal architectures
         run: |
-          lipo -archs out/build/macos-universal/DuckEggs > architectures.txt
+          app="out/build/macos-universal/DuckEggs.app/Contents/MacOS/DuckEggs"
+          lipo -archs "$app" > architectures.txt
           python3 -c 'a=set(open("architectures.txt").read().split()); assert {"x86_64", "arm64"} <= a, a'
+      - name: Verify per-architecture deployment metadata
+        run: |
+          app="out/build/macos-universal/DuckEggs.app/Contents/MacOS/DuckEggs"
+          for arch in x86_64 arm64; do
+            thin="$RUNNER_TEMP/DuckEggs-$arch"
+            lipo -thin "$arch" "$app" -output "$thin"
+            minos=$(otool -l "$thin" | awk '/cmd LC_BUILD_VERSION/{found=1} found && /minos/{print $2; exit}')
+            if [[ -z "$minos" ]]; then
+              minos=$(otool -l "$thin" | awk '/cmd LC_VERSION_MIN_MACOSX/{found=1} found && /version/{print $2; exit}')
+            fi
+            python3 -c 'import sys; v=tuple(map(int,sys.argv[1].split("."))); floor=tuple(map(int,sys.argv[2].split("."))); assert v <= floor, (v,floor)' "$minos" "$([[ "$arch" == x86_64 ]] && echo 10.15 || echo 11.0)"
+          done
+          otool -L "$app" > dependencies.txt
+      - name: Timed paused Cocoa startup and shutdown
+        timeout-minutes: 1
+        run: |
+          if pgrep -x WindowServer >/dev/null; then
+            app="out/build/macos-universal/DuckEggs.app/Contents/MacOS/DuckEggs"
+            "$app" --start-paused --no-visual --duration 3 --data-dir "$RUNNER_TEMP/duckeggs-ui-smoke"
+          else
+            echo "WindowServer unavailable; Cocoa GUI smoke could not run." | tee ui-smoke-limitation.txt
+          fi
+      - name: Ad-hoc sign app and verify signature
+        run: |
+          app="out/build/macos-universal/DuckEggs.app"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+      - name: Package universal app
+        run: cpack --preset macos-universal
+      - name: Verify packaged signature
+        run: |
+          archive=$(echo out/build/macos-universal/DuckEggs-*-macos-universal.zip)
+          destination="$RUNNER_TEMP/duckeggs-packaged"
+          mkdir -p "$destination"
+          unzip -q "$archive" -d "$destination"
+          app=$(find "$destination" -name DuckEggs.app -type d -print -quit)
+          test -n "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+      - name: Upload universal macOS ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: DuckEggs-macos-universal
+          path: out/build/macos-universal/DuckEggs-*-macos-universal.zip
+          if-no-files-found: error
 
   macos-intel:
     name: macOS Intel x86_64 build, tests and readonly probe
@@ -72,9 +118,25 @@ jobs:
         run: ctest --preset macos-intel
       - name: Native capability probe (no capture or permission prompt)
         run: |
-          ./out/build/macos-intel/DuckEggs --probe > probe.json
+          ./out/build/macos-intel/DuckEggs.app/Contents/MacOS/DuckEggs --probe > probe.json
           python3 -c 'import json; d=json.load(open("probe.json")); assert d["supported"] is True; assert d["capture_performed"] is False'
+          python3 -c 'import plistlib; p=plistlib.load(open("out/build/macos-intel/DuckEggs.app/Contents/Info.plist","rb")); assert p["CFBundleIdentifier"] == "io.github.gdiciocco.DuckEggs"; assert p["CFBundleExecutable"] == "DuckEggs"; assert p["CFBundleVersion"] == "6"; assert p["CFBundleShortVersionString"] == "0.4.0"; assert p["LSMinimumSystemVersion"] == "10.15"'
       - name: Verify Intel architecture
         run: |
-          lipo -archs out/build/macos-intel/DuckEggs > architectures.txt
+          app="out/build/macos-intel/DuckEggs.app/Contents/MacOS/DuckEggs"
+          lipo -archs "$app" > architectures.txt
           python3 -c 'a=set(open("architectures.txt").read().split()); assert "x86_64" in a and "arm64" not in a, a'
+          minos=$(otool -l "$app" | awk '/cmd LC_BUILD_VERSION/{found=1} found && /minos/{print $2; exit}')
+          if [[ -z "$minos" ]]; then
+            minos=$(otool -l "$app" | awk '/cmd LC_VERSION_MIN_MACOSX/{found=1} found && /version/{print $2; exit}')
+          fi
+          python3 -c 'import sys; assert tuple(map(int,sys.argv[1].split("."))) <= (10,15), sys.argv[1]' "$minos"
+      - name: Timed paused Cocoa startup and shutdown
+        timeout-minutes: 1
+        run: |
+          if pgrep -x WindowServer >/dev/null; then
+            app="out/build/macos-intel/DuckEggs.app/Contents/MacOS/DuckEggs"
+            "$app" --start-paused --no-visual --duration 3 --data-dir "$RUNNER_TEMP/duckeggs-ui-smoke"
+          else
+            echo "WindowServer unavailable; Cocoa GUI smoke could not run." | tee ui-smoke-limitation.txt
+          fi
