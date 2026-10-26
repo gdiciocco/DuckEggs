@@ -166,10 +166,28 @@ endif()
 # runtime.cpp calls into the UI while the UI uses the runtime. Linking two
 # static archives with that cycle is not portable across linkers, so keep the
 # UI object on every consumer's link line directly.
-add_library(schiva_ui OBJECT src/runtime/win32_ui.cpp)
+if(APPLE)
+    find_library(SCHIVA_APPKIT_FRAMEWORK AppKit REQUIRED)
+    add_library(schiva_ui OBJECT src/runtime/macos_ui.mm)
+    set_source_files_properties(
+        src/runtime/macos_ui.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+    set_target_properties(
+        schiva_ui PROPERTIES
+        OBJCXX_STANDARD 20
+        OBJCXX_STANDARD_REQUIRED ON
+        OBJCXX_EXTENSIONS OFF)
+    target_link_libraries(schiva_ui PUBLIC schiva_runtime PRIVATE
+        "${SCHIVA_APPKIT_FRAMEWORK}"
+        "${SCHIVA_APPLICATION_SERVICES_FRAMEWORK}"
+        "${SCHIVA_CORE_GRAPHICS_FRAMEWORK}")
+else()
+    add_library(schiva_ui OBJECT src/runtime/win32_ui.cpp)
+    target_link_libraries(schiva_ui PUBLIC schiva_runtime)
+endif()
 target_include_directories(
-    schiva_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime")
-target_link_libraries(schiva_ui PUBLIC schiva_runtime)
+    schiva_ui PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/runtime"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
 if(WIN32)
     target_compile_definitions(
         schiva_ui PRIVATE
