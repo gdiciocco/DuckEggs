@@ -37,14 +37,8 @@ inline std::optional<VisualFrame> macos_visual_frame_from_image(
     }
 
     CGContextSetInterpolationQuality(context, kCGInterpolationLow);
-    CGContextTranslateCTM(context, 0, height);
-    CGContextScaleCTM(
-        context,
-        static_cast<CGFloat>(width) / CGImageGetWidth(image),
-        -static_cast<CGFloat>(height) / CGImageGetHeight(image));
     CGContextDrawImage(
-        context,
-        CGRectMake(0, 0, CGImageGetWidth(image), CGImageGetHeight(image)), image);
+        context, CGRectMake(0, 0, width, height), image);
     CGContextRelease(context);
 
     std::vector<Rect> excluded;
