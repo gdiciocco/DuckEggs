@@ -15,7 +15,10 @@
 #include <sys/stat.h>
 #include <vector>
 
-using namespace schiva;
+using schiva::AdaptiveApplication;
+using schiva::Json;
+namespace detail = schiva::detail;
+namespace heatmap = schiva::heatmap;
 
 namespace {
 constexpr NSSize kMainSize{600, 360};
@@ -76,15 +79,15 @@ NSString *login_path() {
       stringByAppendingPathComponent:@"Library/LaunchAgents"]
       stringByAppendingPathComponent:kLoginFile];
 }
-NSRect quartz_rect(Rect r, CGFloat h) {
+NSRect quartz_rect(schiva::Rect r, CGFloat h) {
   return NSMakeRect(r.left, h - r.bottom, r.width(), r.height());
 }
-Point quartz_point(NSPoint p, CGFloat h) {
-  return {(int)std::lround(p.x), (int)std::lround(h - p.y)};
+schiva::Point quartz_point(NSPoint p, CGFloat h) {
+  return detail::cocoa_to_quartz_point(p.x, p.y, h);
 }
-Rect quartz_rect(NSRect r, CGFloat h) {
-  return {(int)std::lround(NSMinX(r)), (int)std::lround(h - NSMaxY(r)),
-          (int)std::lround(NSMaxX(r)), (int)std::lround(h - NSMinY(r))};
+schiva::Rect quartz_rect(NSRect r, CGFloat h) {
+  return detail::cocoa_to_quartz_rect(
+      NSMinX(r), NSMinY(r), NSMaxX(r), NSMaxY(r), h);
 }
 NSRect map_rect(heatmap::NormalizedRect r, NSRect a) {
   return NSMakeRect(
@@ -136,17 +139,17 @@ NSURL *privacy_url(NSString *pane) {
   std::vector<std::uint32_t> _pickerIds;
   std::optional<std::string> _profile;
   std::string _layer;
-  long long _insightsRevision{-1}, _selectionRevision{-1}, _resetRevision{-1};
+  long long _insightsRevision, _selectionRevision, _resetRevision;
   NSString *_lastState;
   NSString *_lastPermission;
   NSString *_lastError;
   NSString *_lastPause;
   NSString *_lastMapNotice;
-  std::chrono::steady_clock::time_point _lastMapRequest{};
-  bool _pickerRequested{}, _selectionPending{}, _resetPending{}, _mapOpen{},
-      _closing{};
-  int _hoverColumn{-1}, _hoverRow{-1};
-  CGFloat _primaryHeight_{};
+  std::chrono::steady_clock::time_point _lastMapRequest;
+  bool _pickerRequested, _selectionPending, _resetPending, _mapOpen;
+  bool _closing, _restoreMainAfterPicker, _restoreMapsAfterPicker;
+  int _hoverColumn, _hoverRow;
+  CGFloat _primaryHeight_;
 }
 - (instancetype)initWithApplication:(AdaptiveApplication *)app;
 - (void)tick:(NSTimer *)timer;
@@ -288,6 +291,11 @@ NSURL *privacy_url(NSString *pane) {
     _app = app;
     _layer = "activity";
     _picker = [NSMutableArray array];
+    _insightsRevision = -1;
+    _selectionRevision = -1;
+    _resetRevision = -1;
+    _hoverColumn = -1;
+    _hoverRow = -1;
   }
   return self;
 }
@@ -487,11 +495,23 @@ NSURL *privacy_url(NSString *pane) {
     _lastPause = [pauseTitle copy];
     _pause.title = pauseTitle;
   }
-  NSString *state =
-      s.value("paused", true)
-          ? @"Paused · learning continues safely"
-          : [NSString stringWithFormat:@"Running · %d learned decisions",
-                                       s.value("learning_count", 0)];
+  const std::string stateValue = s.value("state", std::string("starting"));
+  const int candidates = s.value("candidate_count", 0);
+  NSString *badge = s.value("paused", true)
+                        ? @"Paused"
+                        : (s.value("motion_active", false) ||
+                                   stateValue == "moving"
+                               ? @"Moving"
+                               : (stateValue == "no_pip" || candidates == 0
+                                      ? @"No target"
+                                      : (stateValue == "starting"
+                                             ? @"Starting"
+                                             : (stateValue == "error"
+                                                    ? @"Needs attention"
+                                                    : @"Watching"))));
+  NSString *state = [NSString stringWithFormat:
+                          @"%@ · Learning updates: %d", badge,
+                          s.value("learning_count", 0)];
   if (![_lastState isEqualToString:state]) {
     _lastState = [state copy];
     _state.stringValue = state;
@@ -539,6 +559,12 @@ NSURL *privacy_url(NSString *pane) {
 - (void)openPickerPanels {
   if (_picker.count != 0)
     return;
+  _restoreMainAfterPicker = _main.isVisible;
+  _restoreMapsAfterPicker = _mapOpen && _maps.isVisible;
+  if (_restoreMainAfterPicker)
+    [_main orderOut:nil];
+  if (_restoreMapsAfterPicker)
+    [_maps orderOut:nil];
   [self publishScreens];
   for (NSScreen *s in NSScreen.screens) {
     DEPickerPanel *p =
@@ -584,6 +610,12 @@ NSURL *privacy_url(NSString *pane) {
   [self publishPickerIDs];
   if (notify)
     _app->request_manual_picker_closed();
+  if (_restoreMainAfterPicker)
+    [_main orderFront:nil];
+  if (_restoreMapsAfterPicker)
+    [_maps orderFront:nil];
+  _restoreMainAfterPicker = false;
+  _restoreMapsAfterPicker = false;
   _pickerRequested = false;
   _selectionPending = false;
   _resetPending = false;
@@ -632,9 +664,9 @@ NSURL *privacy_url(NSString *pane) {
   Json s = _app->manual_snapshot(), h = s.value("hover", Json::object());
   if (!h.value("found", false) || !h.value("width", 0))
     return;
-  Rect r{h.value("left", 0), h.value("top", 0),
-         h.value("left", 0) + h.value("width", 0),
-         h.value("top", 0) + h.value("height", 0)};
+  schiva::Rect r{h.value("left", 0), h.value("top", 0),
+                 h.value("left", 0) + h.value("width", 0),
+                 h.value("top", 0) + h.value("height", 0)};
   NSRect global = quartz_rect(r, _primaryHeight_),
          local = NSOffsetRect(global, -_picker[i].frame.origin.x,
                               -_picker[i].frame.origin.y);
@@ -855,6 +887,8 @@ NSURL *privacy_url(NSString *pane) {
     _hoverColumn = _hoverRow = -1;
   } else {
     Json d = _app->insights_snapshot().value("data", Json(nullptr));
+    if (!heatmap::bridge_data_matches_selection(d, _profile))
+      d = Json::object();
     auto [c, r] = heatmap::grid_dimensions(d);
     _hoverColumn =
         std::clamp((int)((p.x - area.origin.x) * c / NSWidth(area)), 0, c - 1);
