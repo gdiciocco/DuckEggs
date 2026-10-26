@@ -7,6 +7,11 @@ project(
     LANGUAGES C CXX)
 if(WIN32)
     enable_language(RC)
+elseif(APPLE)
+    enable_language(OBJCXX)
+    set(CMAKE_OBJCXX_STANDARD 20)
+    set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+    set(CMAKE_OBJCXX_EXTENSIONS OFF)
 endif()
 
 set(CMAKE_C_STANDARD 11)
@@ -117,6 +122,27 @@ if(WIN32)
             _WIN32_WINNT=0x0A00)
     target_link_libraries(schiva_platform PRIVATE shcore)
     target_link_libraries(schiva_platform PRIVATE normaliz)
+elseif(APPLE)
+    find_library(SCHIVA_APPLICATION_SERVICES_FRAMEWORK ApplicationServices REQUIRED)
+    find_library(SCHIVA_CORE_GRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
+    find_library(SCHIVA_FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    target_sources(schiva_platform PRIVATE src/platform/macos.mm)
+    set_source_files_properties(
+        src/platform/macos.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+    set_target_properties(
+        schiva_platform PROPERTIES
+        OBJCXX_STANDARD 20
+        OBJCXX_STANDARD_REQUIRED ON
+        OBJCXX_EXTENSIONS OFF)
+    target_link_libraries(
+        schiva_platform PRIVATE
+            "${SCHIVA_APPLICATION_SERVICES_FRAMEWORK}"
+            "${SCHIVA_CORE_GRAPHICS_FRAMEWORK}"
+            "${SCHIVA_FOUNDATION_FRAMEWORK}")
+    # ScreenCaptureKit is only used behind a macOS 14 runtime availability
+    # check. Weak linking keeps the Catalina Intel deployment floor intact.
+    target_link_options(
+        schiva_platform INTERFACE "LINKER:-weak_framework,ScreenCaptureKit")
 else()
     target_sources(schiva_platform PRIVATE src/platform/unsupported.cpp)
 endif()
@@ -233,7 +259,9 @@ if(SCHIVA_BUILD_TESTS)
                 schiva_ui schiva_runtime schiva_platform)
     endif()
 
-    if(NOT WIN32)
+    if(APPLE)
+        add_test(NAME native_probe COMMAND DuckEggs --probe)
+    elseif(NOT WIN32)
         add_test(NAME unsupported_native_probe COMMAND DuckEggs --probe)
         set_tests_properties(
             unsupported_native_probe PROPERTIES WILL_FAIL TRUE)

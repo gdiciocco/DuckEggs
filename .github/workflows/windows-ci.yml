@@ -37,3 +37,44 @@ jobs:
         run: cmake --build --preset linux-core --parallel
       - name: Test
         run: ctest --preset linux-core
+
+
+  macos-universal:
+    name: macOS universal2 build, tests and readonly probe
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake --preset macos-universal
+      - name: Build
+        run: cmake --build --preset macos-universal --parallel
+      - name: Test
+        run: ctest --preset macos-universal
+      - name: Native capability probe (no capture or permission prompt)
+        run: |
+          ./out/build/macos-universal/DuckEggs --probe > probe.json
+          python3 -c 'import json; d=json.load(open("probe.json")); assert d["supported"] is True; assert d["capture_performed"] is False'
+      - name: Verify universal architectures
+        run: |
+          lipo -archs out/build/macos-universal/DuckEggs > architectures.txt
+          python3 -c 'a=set(open("architectures.txt").read().split()); assert {"x86_64", "arm64"} <= a, a'
+
+  macos-intel:
+    name: macOS Intel x86_64 build, tests and readonly probe
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake --preset macos-intel
+      - name: Build
+        run: cmake --build --preset macos-intel --parallel
+      - name: Test
+        run: ctest --preset macos-intel
+      - name: Native capability probe (no capture or permission prompt)
+        run: |
+          ./out/build/macos-intel/DuckEggs --probe > probe.json
+          python3 -c 'import json; d=json.load(open("probe.json")); assert d["supported"] is True; assert d["capture_performed"] is False'
+      - name: Verify Intel architecture
+        run: |
+          lipo -archs out/build/macos-intel/DuckEggs > architectures.txt
+          python3 -c 'a=set(open("architectures.txt").read().split()); assert "x86_64" in a and "arm64" not in a, a'

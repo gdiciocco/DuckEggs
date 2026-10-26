@@ -26,6 +26,30 @@
         "SCHIVA_BUILD_TESTS": "ON",
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "macos-universal",
+      "displayName": "DuckEggs macOS universal (Intel + Apple Silicon)",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/out/build/macos-universal",
+      "cacheVariables": {
+        "SCHIVA_BUILD_TESTS": "ON",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "x86_64;arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "10.15"
+      }
+    },
+    {
+      "name": "macos-intel",
+      "displayName": "DuckEggs macOS Intel x86_64",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/out/build/macos-intel",
+      "cacheVariables": {
+        "SCHIVA_BUILD_TESTS": "ON",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "10.15"
+      }
     }
   ],
   "buildPresets": [
@@ -42,6 +66,14 @@
     {
       "name": "linux-core",
       "configurePreset": "linux-core"
+    },
+    {
+      "name": "macos-universal",
+      "configurePreset": "macos-universal"
+    },
+    {
+      "name": "macos-intel",
+      "configurePreset": "macos-intel"
     }
   ],
   "testPresets": [
@@ -67,13 +99,29 @@
       "output": {
         "outputOnFailure": true
       }
+    },
+    {
+      "name": "macos-universal",
+      "configurePreset": "macos-universal",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-intel",
+      "configurePreset": "macos-intel",
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ],
   "packagePresets": [
     {
       "name": "windows-release",
       "configurePreset": "windows-msvc",
-      "configurations": ["Release"]
+      "configurations": [
+        "Release"
+      ]
     }
   ]
 }
