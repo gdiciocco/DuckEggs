@@ -52,6 +52,18 @@ MacUiSnapshot g_ui_snapshot;
 
 void publish_macos_screens(std::vector<MacScreenGeometry> screens) {
     std::lock_guard lock(g_ui_mutex);
+    const auto same_rect = [](const Rect& a, const Rect& b) {
+        return a.left == b.left && a.top == b.top &&
+               a.right == b.right && a.bottom == b.bottom;
+    };
+    const bool same = g_ui_snapshot.screens.size() == screens.size() &&
+        std::equal(g_ui_snapshot.screens.begin(), g_ui_snapshot.screens.end(),
+            screens.begin(), [&](const MacScreenGeometry& a, const MacScreenGeometry& b) {
+                return a.display_id == b.display_id &&
+                    same_rect(a.frame, b.frame) &&
+                    same_rect(a.visible_frame, b.visible_frame);
+            });
+    if (same && g_ui_snapshot.screens_valid) return;
     g_ui_snapshot.screens = std::move(screens);
     g_ui_snapshot.screens_valid = !g_ui_snapshot.screens.empty();
     ++g_ui_snapshot.generation;
@@ -59,6 +71,7 @@ void publish_macos_screens(std::vector<MacScreenGeometry> screens) {
 
 void clear_macos_screens() {
     std::lock_guard lock(g_ui_mutex);
+    if (g_ui_snapshot.screens.empty() && !g_ui_snapshot.screens_valid) return;
     g_ui_snapshot.screens.clear();
     g_ui_snapshot.screens_valid = false;
     ++g_ui_snapshot.generation;
@@ -66,6 +79,7 @@ void clear_macos_screens() {
 
 void publish_macos_picker_windows(std::vector<std::uint32_t> window_ids) {
     std::lock_guard lock(g_ui_mutex);
+    if (g_ui_snapshot.picker_window_ids == window_ids) return;
     g_ui_snapshot.picker_window_ids = std::move(window_ids);
     ++g_ui_snapshot.generation;
 }
@@ -274,8 +288,8 @@ bool ax_rect(AXUIElementRef element, Rect& output) {
     }
     CGPoint point{};
     CGSize dimensions{};
-    if (!AXValueGetValue(position.get(), kAXValueCGPointType, &point) ||
-        !AXValueGetValue(size.get(), kAXValueCGSizeType, &dimensions) ||
+    if (!AXValueGetValue(position.get(), kAXValueTypeCGPoint, &point) ||
+        !AXValueGetValue(size.get(), kAXValueTypeCGSize, &dimensions) ||
         !std::isfinite(point.x) || !std::isfinite(point.y) ||
         !std::isfinite(dimensions.width) || !std::isfinite(dimensions.height) ||
         dimensions.width < 1 || dimensions.height < 1) {
@@ -296,7 +310,7 @@ bool ax_attribute_settable(AXUIElementRef element, CFStringRef attribute) {
 bool ax_full_screen(AXUIElementRef element) {
     CFTypeRef raw = nullptr;
     if (AXUIElementCopyAttributeValue(
-            element, kAXFullScreenAttribute, &raw) != kAXErrorSuccess || raw == nullptr) {
+            element, CFSTR("AXFullScreen"), &raw) != kAXErrorSuccess || raw == nullptr) {
         if (raw != nullptr) CFRelease(raw);
         return false;
     }
@@ -327,6 +341,7 @@ struct Record {
     std::string app_id;
     std::string title;
     std::string role;
+    int layer{};
     Rect rect;
     bool rect_valid{};
     bool on_screen{};
@@ -600,12 +615,7 @@ std::atomic<bool> g_screenkit_request_pending{};
 
 std::optional<VisualFrame> capture_screenkit(
     const Rect& bounds,
-    const std::vector<Rect>& masks) {
-    if (@available(macOS 14.0, *)) {
-        // Continue with the ScreenCaptureKit path below.
-    } else {
-        return std::nullopt;
-    }
+    const std::vector<Rect>& masks) API_AVAILABLE(macos(14.0)) {
     bool expected = false;
     if (!g_screenkit_request_pending.compare_exchange_strong(expected, true)) {
         return std::nullopt;
@@ -618,7 +628,9 @@ std::optional<VisualFrame> capture_screenkit(
                         g_screenkit_request_pending.store(false);
                         completion(CFPtr<CGImageRef>{}, error == nil ?
                             std::string("screen capture content is unavailable") :
-                            std::string([[error localizedDescription] UTF8String] ?: "screen capture content is unavailable"));
+                            std::string(([[error localizedDescription] UTF8String] != nullptr
+                                ? [[error localizedDescription] UTF8String]
+                                : "screen capture content is unavailable")));
                         return;
                     }
                     SCDisplay* selected = nil;
@@ -669,7 +681,9 @@ std::optional<VisualFrame> capture_screenkit(
                             g_screenkit_request_pending.store(false);
                             completion(std::move(owned), capture_error == nil ?
                                 std::string{} :
-                                std::string([[capture_error localizedDescription] UTF8String] ?: "screen capture failed"));
+                                std::string(([[capture_error localizedDescription] UTF8String] != nullptr
+                                    ? [[capture_error localizedDescription] UTF8String]
+                                    : "screen capture failed")));
                         }];
                 }];
         });
@@ -1071,6 +1085,21 @@ public:
             !buttons && CGPreflightScreenCaptureAccess() &&
             visual_capture_eligible(include_visual, paused_, false, buttons,
                                     pip_rect, cursor);
+        CaptureContext context;
+        if (foreground.has_value()) {
+            context.foreground_id = id_for(*foreground);
+            context.foreground_rect = foreground->rect;
+        }
+        if (pip.has_value()) {
+            context.pip_id = id_for(*pip);
+            context.pip_rect = pip->rect;
+        }
+        context.work = *work;
+        context.masks = masks;
+        if (!capture_context_.has_value() || *capture_context_ != context) {
+            capture_context_ = std::move(context);
+            invalidate_capture();
+        }
         if (can_capture) {
             capture_worker_.set_suppressed(false);
             const int generation = capture_generation_;
@@ -1108,7 +1137,7 @@ public:
             last_error_ = "the target window is no longer available";
             return false;
         }
-        const auto current = validate_identity(*target, true);
+        const auto current = validate_identity(*target, true, !manual_mode_);
         if (!current.has_value() || !current->ax_settable) {
             last_error_ = "the target window identity or position permission changed";
             if (manual_mode_) {
@@ -1136,7 +1165,7 @@ public:
             return false;
         }
         const Record lease = *motion_;
-        const auto current = validate_identity(lease, true);
+        const auto current = validate_identity(lease, true, !manual_mode_);
         if (!current.has_value() || !current->ax_settable) {
             stop_motion("the target window identity could not be validated");
             if (manual_mode_) {
@@ -1179,7 +1208,7 @@ public:
             stop_motion("the requested move leaves the display work area");
             return false;
         }
-        const auto latest = validate_identity(lease, true);
+        const auto latest = validate_identity(lease, true, !manual_mode_);
         const Point final_cursor = cursor_location();
         if (!latest.has_value()) {
             stop_motion("the target window identity changed before the move");
@@ -1197,7 +1226,7 @@ public:
             return false;
         }
         CGPoint position = CGPointMake(left, top);
-        auto value = own_cf(AXValueCreate(kAXValueCGPointType, &position));
+        auto value = own_cf(AXValueCreate(kAXValueTypeCGPoint, &position));
         if (!value || AXUIElementSetAttributeValue(
                 latest->ax->element, kAXPositionAttribute, value.get()) != kAXErrorSuccess) {
             stop_motion("Accessibility could not move the selected window");
@@ -1267,6 +1296,41 @@ public:
     }
 
 private:
+    struct CaptureContext {
+        std::string foreground_id;
+        std::optional<Rect> foreground_rect;
+        std::string pip_id;
+        std::optional<Rect> pip_rect;
+        Rect work;
+        std::vector<Rect> masks;
+
+        friend bool operator==(const CaptureContext& a, const CaptureContext& b) {
+            const auto equal_rect = [](const std::optional<Rect>& x,
+                                       const std::optional<Rect>& y) {
+                if (x.has_value() != y.has_value()) return false;
+                if (!x) return true;
+                return x->left == y->left && x->top == y->top &&
+                       x->right == y->right && x->bottom == y->bottom;
+            };
+            if (a.foreground_id != b.foreground_id ||
+                !equal_rect(a.foreground_rect, b.foreground_rect) ||
+                a.pip_id != b.pip_id || !equal_rect(a.pip_rect, b.pip_rect) ||
+                a.work.left != b.work.left || a.work.top != b.work.top ||
+                a.work.right != b.work.right || a.work.bottom != b.work.bottom ||
+                a.masks.size() != b.masks.size()) return false;
+            for (std::size_t i = 0; i < a.masks.size(); ++i) {
+                if (a.masks[i].left != b.masks[i].left ||
+                    a.masks[i].top != b.masks[i].top ||
+                    a.masks[i].right != b.masks[i].right ||
+                    a.masks[i].bottom != b.masks[i].bottom) return false;
+            }
+            return true;
+        }
+        friend bool operator!=(const CaptureContext& a, const CaptureContext& b) {
+            return !(a == b);
+        }
+    };
+
     struct ManualTarget {
         Record record;
         std::string title;
@@ -1324,6 +1388,7 @@ private:
             record.pid = item.pid;
             record.start_time = start_by_pid[item.pid];
             record.title = item.title;
+            record.layer = item.layer;
             record.rect = item.rect;
             record.rect_valid = item.rect_valid;
             record.on_screen = item.on_screen && item.alpha > 0.01;
@@ -1391,7 +1456,8 @@ private:
         return std::nullopt;
     }
 
-    std::optional<Record> validate_identity(const Record& lease, bool require_settable) {
+    std::optional<Record> validate_identity(
+        const Record& lease, bool require_settable, bool require_auto_pip = false) {
         if (!lease.ax || lease.pid <= 0 || lease.start_time == 0 ||
             !AXIsProcessTrusted() || process_start_time(lease.pid) != lease.start_time) {
             return std::nullopt;
@@ -1419,6 +1485,14 @@ private:
             (require_settable && !ax_attribute_settable(
                 lease.ax->element, kAXPositionAttribute))) {
             return std::nullopt;
+        }
+        if (require_auto_pip) {
+            if (bundle_identifier(lease.pid) != "com.google.Chrome") return std::nullopt;
+            const std::string current_title = cf_attribute_string(
+                lease.ax->element, kAXTitleAttribute);
+            if (!title_matches(wide_from_utf8(current_title).value_or(L""))) {
+                return std::nullopt;
+            }
         }
         const Point center{current_cg->rect.left + current_cg->rect.width()/2,
                            current_cg->rect.top + current_cg->rect.height()/2};
@@ -1487,6 +1561,24 @@ private:
                 ? "Accessibility could not uniquely identify this window."
                 : "Accessibility permission is required to move windows.";
             return target;
+        }
+        if (found->rect_valid && found->ax) {
+            const Point center{found->rect.left + found->rect.width()/2,
+                               found->rect.top + found->rect.height()/2};
+            const auto work = screen_work_area(ui, center);
+            const auto monitor = monitor_area(ui, center);
+            if (work && monitor) {
+                const auto eligibility = manual_window_eligibility(
+                    found->rect, *monitor, *work,
+                    ax_full_screen(found->ax->element));
+                if (!eligibility.eligible) {
+                    ManualTarget target;
+                    target.record = *found;
+                    target.title = found->title;
+                    target.reason = eligibility.reason;
+                    return target;
+                }
+            }
         }
         const auto validated = validate_identity(*found, true);
         if (!validated.has_value() || point.x < validated->rect.left ||
@@ -1577,6 +1669,7 @@ private:
     std::map<CGWindowID, TokenEntry> token_by_cg_;
     std::uint64_t next_token_{};
     std::uint64_t last_ui_generation_{};
+    std::optional<CaptureContext> capture_context_;
     std::optional<double> last_input_time_;
     std::optional<Point> last_cursor_;
     bool last_buttons_{};
