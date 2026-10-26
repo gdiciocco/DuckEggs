@@ -12,10 +12,10 @@ DuckEggs is a small Windows app that moves a window when it gets in the way of
 your work. It was designed for browser picture-in-picture, and manual selection
 can keep selected eligible windows on top and away from your busy work area.
 
-[Download DuckEggs 0.4.0-alpha.4 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.4/DuckEggs-0.4.0-alpha.4-windows-x64.zip)
+[Download DuckEggs 0.4.0-alpha.5 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.5/DuckEggs-0.4.0-alpha.5-windows-x64.zip)
 
 This is an early alpha. See the
-[v0.4.0-alpha.4 pre-release](https://github.com/gdiciocco/DuckEggs/releases/tag/v0.4.0-alpha.4)
+[v0.4.0-alpha.5 pre-release](https://github.com/gdiciocco/DuckEggs/releases/tag/v0.4.0-alpha.5)
 for release details.
 
 ## What it does
@@ -31,12 +31,15 @@ for release details.
   window is bound, including while DuckEggs is paused.
 - Remembers your layout preferences for each app, locally on your PC.
 - Includes visible Learning maps so you can see what DuckEggs has learned.
+- Adapts the temporary heatmap when content changes while retaining learned
+  preferences.
+- Uses cursor escapes that avoid an initial movement toward the pointer.
 - Avoids unnecessary moves during broad page updates, such as scrolling.
 - Uses a compact quote and smoother updates to reduce visual distraction.
 
 ## Requirements
 
-DuckEggs 0.4.0-alpha.4 supports Windows 10 or Windows 11, 64-bit. Automatic
+DuckEggs 0.4.0-alpha.5 supports Windows 10 or Windows 11, 64-bit. Automatic
 recognition remains limited to Chrome. Manual selection can target any eligible
 top-level window for the current session; other applications are available by
 explicit selection but are not yet live-validated as compatibility guarantees.
@@ -89,10 +92,10 @@ cleanup may not run.
 ## Your data
 
 Learning data and preferences stay on your PC in
-`%LOCALAPPDATA%\DuckEggs`. DuckEggs does not collect analytics, take
-screenshots, or store them. Manual window names, transient hover details, and
-capture pixels remain in memory for the current session only and are not
-written to learning data or `status.json`.
+`%LOCALAPPDATA%\DuckEggs`. DuckEggs does not save screenshots or collect
+analytics. Visual captures are processed only in RAM. Manual window names,
+transient hover details, and capture pixels remain in memory for the current
+session only and are not written to learning data or `status.json`.
 
 To reset DuckEggs, exit the app and delete that folder.
 

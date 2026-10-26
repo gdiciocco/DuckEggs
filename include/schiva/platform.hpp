@@ -137,6 +137,16 @@ bool segment_is_safe(
     Point cursor,
     int safety_margin = 28);
 bool point_near_rect(Point point, const Rect& rect, int margin);
+// Visual capture masks handle the PiP itself. Suppress capture only while the
+// cursor is over its controls, including the same 20 px inner margin used by
+// movement, so nearby content remains observable.
+bool visual_capture_eligible(
+    bool include_visual,
+    bool paused,
+    bool motion_active,
+    bool mouse_buttons_down,
+    const std::optional<Rect>& pip_rect,
+    Point cursor);
 std::optional<Rect> clipped_intersection(const Rect& rect, const Rect& bounds);
 
 class Backend {

@@ -187,8 +187,10 @@ struct Controller::Impl {
 
     struct Motion {
         Rect target;
+        Rect source;
         std::string reason;
         double clearance{};
+        bool pointer_escape{};
         detail::MotionTrajectory trajectory;
         std::optional<Point> last_emitted;
         std::optional<Point> previous_emitted;
@@ -253,6 +255,15 @@ struct Controller::Impl {
         last_emitted_rect.reset();
         manual_drag_seen = false;
         return_since.reset();
+    }
+
+    void start_content_overlay(double now) {
+        // The old outcome belongs to pre-transition content. Detach it while
+        // retaining committed motion and its own-interpolation bookkeeping.
+        pending.reset();
+        return_since.reset();
+        activity.begin_content_overlay(now);
+        ++content_transition_count;
     }
 
     void reset_transient(bool visual_reset = false) {
@@ -508,12 +519,15 @@ struct Controller::Impl {
             observation.cursor.x < reference.right &&
             reference.top <= observation.cursor.y &&
             observation.cursor.y < reference.bottom;
+        const bool arrived =
+            same_rect(pip_rect, pending->target, kPositionTolerance);
         const bool near_selected_target =
             detail::distance_to_rect(pending->target,
                                      observation.cursor) <=
             detail::kNearMargin;
         const bool returning =
-            !observation.buttons_down && !inside_pip_control &&
+            arrived && !observation.buttons_down &&
+            !inside_pip_control &&
             in_reference && near_selected_target && recent_input;
         if (returning) {
             if (!return_since.has_value()) {
@@ -528,13 +542,13 @@ struct Controller::Impl {
             return_since.reset();
         }
 
-        if (same_rect(pip_rect, pending->target, kPositionTolerance) &&
-            caret_conflict(observation.caret, pending->target)) {
+        if (arrived && caret_conflict(observation.caret,
+                                      pending->target)) {
             learn(*pending, kManualCorrectionReward);
             cancel_motion_for_conflict(now);
             return;
         }
-        if (same_rect(pip_rect, pending->target, kPositionTolerance) &&
+        if (arrived &&
             recent_input && !observation.buttons_down &&
             !inside_pip_control && !returning &&
             !pending->quiet_censored) {
@@ -544,7 +558,7 @@ struct Controller::Impl {
         if (now < pending->due_at) {
             return;
         }
-        if (same_rect(pip_rect, pending->target, kPositionTolerance) &&
+        if (arrived &&
             pending->exposure >= kExposureSeconds &&
             !pending->quiet_censored && !return_since.has_value()) {
             learn(*pending, kQuietExposureReward);
@@ -605,7 +619,8 @@ struct Controller::Impl {
 
     std::optional<std::tuple<Rect, std::vector<double>,
                              std::string, double>>
-    choose_target(double now, const Observation& observation) {
+    choose_target(double now, const Observation& observation,
+                  bool pointer_escape) {
         if (!observation.pip.has_value()) {
             return std::nullopt;
         }
@@ -617,6 +632,29 @@ struct Controller::Impl {
                                     observation.pip->rect);
         if (candidates.empty()) {
             return std::nullopt;
+        }
+        if (pointer_escape) {
+            // Apply the route contract before clearance ranking. Otherwise a
+            // clearing target without a monotonic route can hide a valid
+            // lower-clearance fallback.
+            candidates.erase(
+                std::remove_if(
+                    candidates.begin(), candidates.end(),
+                    [&](const Rect& target) {
+                        return !detail::plan_safe_path(
+                                    {observation.pip->rect.left,
+                                     observation.pip->rect.top},
+                                    {target.left, target.top}, width,
+                                    height, observation.cursor,
+                                    detail::kSafetyMargin,
+                                    observation.work_area, true)
+                                    .has_value();
+                    }),
+                candidates.end());
+            if (candidates.empty()) {
+                retry_after = now + kRetrySeconds;
+                return std::nullopt;
+            }
         }
         candidates = detail::eligible_placement_targets(
             candidates, observation);
@@ -693,6 +731,7 @@ struct Controller::Impl {
             last_pip_id.reset();
             invalidate_opportunity();
             reset_transient(true);
+            activity.clear_content_overlay();
             last_maintenance_at.reset();
             return decision("no_pip", std::nullopt, std::nullopt,
                             "pip_unavailable");
@@ -710,6 +749,7 @@ struct Controller::Impl {
             last_observed_pip.reset();
             near_since.reset();
             activity.reset_presence();
+            activity.clear_content_overlay();
         }
         last_pip_id = observation.pip->window_id;
 
@@ -740,6 +780,9 @@ struct Controller::Impl {
         std::optional<detail::VisualEvidence> evidence;
         if (due || observation.visual_frame.has_value()) {
             evidence = observe_visual(now, observation);
+        }
+        if (evidence.has_value() && evidence->content_transition) {
+            start_content_overlay(now);
         }
         if (due) {
             activity.observe(now, observation);
@@ -820,17 +863,27 @@ struct Controller::Impl {
 
                 const int width = observation.pip->rect.width();
                 const int height = observation.pip->rect.height();
+                const bool pointer_threatens_escape =
+                    motion->pointer_escape &&
+                    (detail::contains_point_with_margin(
+                         observation.pip->rect, observation.cursor,
+                         detail::kNearMargin) ||
+                     detail::contains_point_with_margin(
+                         motion->source, observation.cursor,
+                         detail::kNearMargin));
                 std::vector<Point> remaining =
                     motion->trajectory.remaining_waypoints();
                 if (!detail::route_is_safe(
                         current_point, remaining, width, height,
                         observation.cursor, detail::kSafetyMargin,
-                        observation.work_area)) {
+                        observation.work_area,
+                        pointer_threatens_escape)) {
                     const auto path = detail::plan_safe_path(
                         current_point,
                         {motion->target.left, motion->target.top}, width,
                         height, observation.cursor, detail::kSafetyMargin,
-                        observation.work_area);
+                        observation.work_area,
+                        pointer_threatens_escape);
                     if (!path.has_value()) {
                         cancel_motion_for_conflict(now);
                         return decision(
@@ -899,7 +952,8 @@ struct Controller::Impl {
             return decision("idle");
         }
 
-        const auto chosen = choose_target(now, observation);
+        const auto chosen =
+            choose_target(now, observation, reason == "cursor_near");
         if (!chosen.has_value()) {
             return decision(
                 "no_safe_target", std::nullopt, std::nullopt,
@@ -920,7 +974,8 @@ struct Controller::Impl {
             {observation.pip->rect.left, observation.pip->rect.top},
             {target.left, target.top}, observation.pip->rect.width(),
             observation.pip->rect.height(), observation.cursor,
-            detail::kSafetyMargin, observation.work_area);
+            detail::kSafetyMargin, observation.work_area,
+            reason == "cursor_near");
         if (!path.has_value()) {
             retry_after = now + kRetrySeconds;
             return decision("no_safe_target", std::nullopt,
@@ -930,7 +985,8 @@ struct Controller::Impl {
             detail::MotionTrajectory::from_path(*path);
         const Point first =
             trajectory.advance(std::min(elapsed, 1.0 / 60.0));
-        motion = Motion{target, chosen_reason, clearance,
+        motion = Motion{target, observation.pip->rect, chosen_reason, clearance,
+                        reason == "cursor_near",
                         std::move(trajectory), first, std::nullopt,
                         std::nullopt};
         pending = PendingOutcome{
@@ -1006,6 +1062,7 @@ struct Controller::Impl {
     std::optional<double> last_maintenance_at;
     std::optional<detail::LinUCBModel> model;
     int learning_count{};
+    int content_transition_count{};
 };
 
 Controller::Controller(LearningStore& store, bool observe_only)
@@ -1062,6 +1119,13 @@ Json Controller::status() const {
                                     : Json(nullptr)},
         {"state", impl_->state},
         {"visual_available", impl_->visual_available}};
+    if (impl_->activity.content_overlay_active()) {
+        status["content_overlay_active"] = true;
+    }
+    if (impl_->content_transition_count > 0) {
+        status["content_transition_count"] =
+            impl_->content_transition_count;
+    }
     if (impl_->visual.broad_active_at(
             impl_->current_now.value_or(0.0))) {
         status["visual_broad_update"] = true;
@@ -1131,7 +1195,7 @@ Json Controller::insights(
     const std::optional<detail::ActivityState> active_state =
         impl_->context.has_value()
             ? std::optional<detail::ActivityState>(
-                  impl_->activity.state())
+                  impl_->activity.effective_state())
             : std::nullopt;
     const double now = impl_->current_now.value_or(0.0);
     if (selected_is_active && impl_->visual_available &&

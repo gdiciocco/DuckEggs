@@ -17,6 +17,10 @@ an effective reason to evade; hovering controls and manual movement still freeze
 or protect PiP as before. Preserve the12feature LinUCB/storage contract and
 original Python. No screenshot persistence or extra runtime dependencies.
 
+The broad detector can also start a bounded stable-content candidate, but it
+never activates adaptation by itself. See `content-adaptation.md` for the
+confirmation, overlay, and persistence rules.
+
 Verification must distinguish synthetic detector/controller tests and parity
 checks from live screen capture and actual PiP movement. Never claim a real
 scroll/typing recognition test based solely on synthetic pixel patterns.

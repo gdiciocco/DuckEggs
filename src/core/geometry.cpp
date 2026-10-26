@@ -53,6 +53,43 @@ std::vector<Point> compact(const std::vector<Point>& points) {
     return result;
 }
 
+bool route_preserves_pointer_clearance(
+    const Point& start, const std::vector<Point>& route, int width,
+    int height, const Point& cursor, double tolerance = 1.0) {
+    if (route.empty()) {
+        return true;
+    }
+    double required = distance_to_rect(
+        {start.x, start.y, start.x + width, start.y + height}, cursor);
+    Point current = start;
+    for (const Point& point : route) {
+        if (point == current) {
+            continue;
+        }
+        const double dx = point.x - current.x;
+        const double dy = point.y - current.y;
+        const int samples = std::max(
+            1, static_cast<int>(
+                   std::ceil(std::hypot(dx, dy) / 2.0)));
+        for (int sample = 1; sample <= samples; ++sample) {
+            const double fraction =
+                static_cast<double>(sample) / samples;
+            const int x = static_cast<int>(python_round(
+                current.x + dx * fraction));
+            const int y = static_cast<int>(python_round(
+                current.y + dy * fraction));
+            const double clearance =
+                distance_to_rect({x, y, x + width, y + height}, cursor);
+            if (clearance + tolerance < required) {
+                return false;
+            }
+            required = std::max(required, clearance);
+        }
+        current = point;
+    }
+    return true;
+}
+
 }  // namespace
 
 long long python_round(double value) {
@@ -191,10 +228,16 @@ bool segment_is_safe(const Point& start, const Point& end, int width,
 std::optional<std::vector<Point>> plan_safe_path(
     const Point& start, const Point& target, int width, int height,
     const Point& cursor, int safety_margin,
-    const std::optional<Rect>& work) {
+    const std::optional<Rect>& work, bool nondecreasing_clearance) {
     std::vector<std::vector<Point>> routes;
-    if (!segment_is_safe(start, target, width, height, cursor,
-                         safety_margin)) {
+    const bool direct_safe =
+        segment_is_safe(start, target, width, height, cursor,
+                        safety_margin);
+    const bool direct_preserves_clearance =
+        !nondecreasing_clearance ||
+        route_preserves_pointer_clearance(
+            start, {target}, width, height, cursor);
+    if (!direct_safe || !direct_preserves_clearance) {
         const Rect forbidden =
             forbidden_top_left(width, height, cursor, safety_margin);
         for (int edge_x : {forbidden.left, forbidden.right}) {
@@ -229,6 +272,11 @@ std::optional<std::vector<Point>> plan_safe_path(
                 break;
             }
         }
+        if (nondecreasing_clearance &&
+            !route_preserves_pointer_clearance(
+                start, route, width, height, cursor)) {
+            safe = false;
+        }
         if (safe) {
             return route;
         }
@@ -239,9 +287,15 @@ std::optional<std::vector<Point>> plan_safe_path(
 bool route_is_safe(const Point& start,
                    const std::vector<Point>& waypoints, int width, int height,
                    const Point& cursor, int safety_margin,
-                   const std::optional<Rect>& work) {
+                   const std::optional<Rect>& work,
+                   bool nondecreasing_clearance) {
     Point current = start;
     if (!within_work(current, width, height, work)) {
+        return false;
+    }
+    if (nondecreasing_clearance &&
+        !route_preserves_pointer_clearance(
+            start, waypoints, width, height, cursor)) {
         return false;
     }
     for (const Point& point : waypoints) {

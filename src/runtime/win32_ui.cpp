@@ -67,6 +67,10 @@ constexpr wchar_t kRunKeyPath[] =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 constexpr wchar_t kRunValueName[] = L"DuckEggs";
 constexpr std::size_t kRunCommandLimit = 260;
+constexpr int kMainClientWidth = 600;
+constexpr int kMainClientHeight = 360;
+constexpr DWORD kMainWindowStyle =
+    WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
 
 constexpr COLORREF kBackgroundGdi = RGB(17, 21, 28);
 constexpr COLORREF kSurfaceGdi = RGB(27, 34, 45);
@@ -667,6 +671,23 @@ void apply_window_chrome(HWND window) {
         &text,
         sizeof(text));
     (void)SetWindowTheme(window, L"DarkMode_Explorer", nullptr);
+}
+
+RECT main_window_outer_rect(UINT dpi) {
+    RECT bounds{
+        0,
+        0,
+        MulDiv(kMainClientWidth, static_cast<int>(dpi), 96),
+        MulDiv(kMainClientHeight, static_cast<int>(dpi), 96)};
+    if (!AdjustWindowRectExForDpi(
+            &bounds, kMainWindowStyle, FALSE, 0, dpi)) {
+        const DWORD error = GetLastError();
+        throw PlatformError(
+            "the DuckEggs window size could not be adjusted for DPI " +
+            std::to_string(dpi) + " (Windows error " +
+            std::to_string(error) + ")");
+    }
+    return bounds;
 }
 
 void draw_egg_mark(
@@ -1730,19 +1751,37 @@ private:
             layout_controls();
             return 0;
         case WM_DPICHANGED: {
-            dpi_ = static_cast<UINT>(HIWORD(wparam));
-            apply_window_icons(window_, dpi_);
-            create_fonts();
+            const UINT new_dpi = static_cast<UINT>(HIWORD(wparam));
             const auto* suggested =
                 reinterpret_cast<const RECT*>(lparam);
-            SetWindowPos(
-                window_,
-                nullptr,
-                suggested->left,
-                suggested->top,
-                suggested->right - suggested->left,
-                suggested->bottom - suggested->top,
-                SWP_NOZORDER | SWP_NOACTIVATE);
+            try {
+                const RECT outer = main_window_outer_rect(new_dpi);
+                if (!SetWindowPos(
+                        window_,
+                        nullptr,
+                        suggested->left,
+                        suggested->top,
+                        outer.right - outer.left,
+                        outer.bottom - outer.top,
+                        SWP_NOZORDER | SWP_NOACTIVATE)) {
+                    throw PlatformError(
+                        "the DuckEggs window could not be resized for the "
+                        "new display scale");
+                }
+            } catch (const std::exception& error) {
+                const std::wstring message =
+                    L"DuckEggs could not adjust its fixed window size. " +
+                    wide(error.what());
+                MessageBoxW(
+                    window_,
+                    message.c_str(),
+                    L"DuckEggs display scale",
+                    MB_OK | MB_ICONERROR);
+                return 0;
+            }
+            dpi_ = new_dpi;
+            apply_window_icons(window_, dpi_);
+            create_fonts();
             layout_controls();
             if (hidden_to_tray_ && !refresh_tray_icon()) {
                 restore_from_tray(true);
@@ -1751,12 +1790,11 @@ private:
             InvalidateRect(window_, nullptr, FALSE);
             return 0;
         }
-        case WM_GETMINMAXINFO: {
-            auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
-            info->ptMinTrackSize.x = px(560);
-            info->ptMinTrackSize.y = px(340);
-            return 0;
-        }
+        case WM_SYSCOMMAND:
+            if ((wparam & 0xfff0U) == SC_MAXIMIZE) {
+                return 0;
+            }
+            break;
         case WM_HSCROLL:
         case WM_VSCROLL:
             return 0;
@@ -4516,21 +4554,40 @@ bool run_platform_ui(AdaptiveApplication& application) {
     try {
         register_classes();
         const UINT dpi = system_dpi();
+        const RECT initial_outer = main_window_outer_rect(dpi);
         window = CreateWindowExW(
             0,
             kPanelClass,
             L"DuckEggs",
-            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+            kMainWindowStyle | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            MulDiv(600, static_cast<int>(dpi), 96),
-            MulDiv(360, static_cast<int>(dpi), 96),
+            initial_outer.right - initial_outer.left,
+            initial_outer.bottom - initial_outer.top,
             nullptr,
             nullptr,
             GetModuleHandleW(nullptr),
             nullptr);
         if (window == nullptr) {
             return false;
+        }
+        const UINT actual_dpi = dpi_for_window(window);
+        if (actual_dpi != dpi) {
+            const RECT outer = main_window_outer_rect(actual_dpi);
+            RECT current{};
+            if (!GetWindowRect(window, &current) ||
+                !SetWindowPos(
+                    window,
+                    nullptr,
+                    current.left,
+                    current.top,
+                    outer.right - outer.left,
+                    outer.bottom - outer.top,
+                    SWP_NOZORDER | SWP_NOACTIVATE)) {
+                throw PlatformError(
+                    "the DuckEggs window could not use the current "
+                    "monitor's display scale");
+            }
         }
         apply_window_chrome(window);
         auto panel = std::make_unique<ControlPanel>(window, application);

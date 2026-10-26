@@ -72,6 +72,8 @@ bool segment_hits_forbidden(double start, double end, double low, double high) {
     return std::max(0.0, entry) < std::min(1.0, exit);
 }
 
+constexpr int kVisualControlMarginPixels = 20;
+
 }  // namespace
 
 std::string current_platform() {
@@ -335,6 +337,33 @@ bool point_near_rect(Point point, const Rect& rect, int margin) {
         static_cast<std::int64_t>(dy) * dy;
     return squared <=
            static_cast<std::int64_t>(margin) * margin;
+}
+
+bool visual_capture_eligible(
+    bool include_visual,
+    bool paused,
+    bool motion_active,
+    bool mouse_buttons_down,
+    const std::optional<Rect>& pip_rect,
+    Point cursor) {
+    if (!include_visual || paused || motion_active || mouse_buttons_down) {
+        return false;
+    }
+    if (!pip_rect.has_value() ||
+        pip_rect->left >= pip_rect->right ||
+        pip_rect->top >= pip_rect->bottom) {
+        return true;
+    }
+
+    const std::int64_t margin = kVisualControlMarginPixels;
+    const std::int64_t x = cursor.x;
+    const std::int64_t y = cursor.y;
+    const bool over_controls =
+        x >= static_cast<std::int64_t>(pip_rect->left) - margin &&
+        x <= static_cast<std::int64_t>(pip_rect->right) + margin &&
+        y >= static_cast<std::int64_t>(pip_rect->top) - margin &&
+        y <= static_cast<std::int64_t>(pip_rect->bottom) + margin;
+    return !over_controls;
 }
 
 std::optional<Rect> clipped_intersection(const Rect& rect, const Rect& bounds) {

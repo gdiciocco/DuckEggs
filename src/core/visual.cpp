@@ -14,6 +14,16 @@ constexpr double kBroadImmediateRatio = 0.50;
 constexpr double kBroadSuccessiveRatio = 0.35;
 constexpr double kBroadSuccessiveMaxGapSeconds = 1.5;
 constexpr double kBroadLatchSeconds = 1.0;
+constexpr int kContentSignificantCellDelta = 2;
+constexpr int kContentStableCellDelta = 1;
+constexpr double kContentChangedFraction = 0.40;
+constexpr double kContentStableFraction = 0.90;
+constexpr double kContentMinimumComparableFraction = 0.60;
+constexpr int kContentMinimumObservations = 3;
+constexpr double kContentMinimumSettleSeconds = 0.50;
+constexpr double kContentMaximumFreshGapSeconds = 1.0;
+constexpr double kContentMaximumCaptureGapSeconds = 1.5;
+constexpr double kContentCooldownSeconds = 0.75;
 
 struct TilePixels {
     int left{};
@@ -58,8 +68,16 @@ void VisualActivityTracker::reset() {
     previous_valid_.reset();
     last_valid_.reset();
     geometry_.reset();
+    stable_content_.reset();
+    candidate_content_.reset();
+    last_content_valid_at_.reset();
     last_now_.reset();
     last_sustained_at_.reset();
+    content_candidate_since_.reset();
+    content_candidate_last_at_.reset();
+    content_cooldown_until_ = -1.0;
+    content_candidate_observations_ = 0;
+    content_candidate_armed_ = false;
     broad_until_ = -1.0;
     grace_until_ = -1.0;
     previous_broad_candidate_ = false;
@@ -206,6 +224,16 @@ VisualEvidence VisualActivityTracker::observe(
         std::count(valid_cells_now.begin(), valid_cells_now.end(), true));
     if (!previous_.has_value() || !previous_pixels_.has_value() ||
         !previous_valid_.has_value() || valid_count == 0) {
+        if (valid_count > 0) {
+            stable_content_ =
+                content_signature(current, valid_cells_now);
+            last_content_valid_at_ = now;
+        }
+        candidate_content_.reset();
+        content_candidate_since_.reset();
+        content_candidate_last_at_.reset();
+        content_candidate_observations_ = 0;
+        content_candidate_armed_ = false;
         previous_ = current;
         previous_pixels_ = frame.pixels;
         previous_valid_ = valid_cells_now;
@@ -285,6 +313,8 @@ VisualEvidence VisualActivityTracker::observe(
     const bool successive_broad =
         successive_fresh && successive_candidate;
     const bool broad_current = immediate_broad || successive_broad;
+    const bool content_transition = update_content_transition(
+        now, current, valid_cells_now, broad_current);
     previous_broad_candidate_ = successive_candidate;
     if (broad_current) {
         clear_spatial_activity();
@@ -324,6 +354,7 @@ VisualEvidence VisualActivityTracker::observe(
         VisualEvidence evidence;
         evidence.valid = true;
         evidence.broad = true;
+        evidence.content_transition = content_transition;
         return evidence;
     }
 
@@ -367,8 +398,180 @@ VisualEvidence VisualActivityTracker::observe(
     evidence.burst = burst;
     evidence.sustained = sustained;
     evidence.conflict = conflict;
+    evidence.content_transition = content_transition;
     evidence.change_ratio = change_ratio;
     return evidence;
+}
+
+VisualActivityTracker::ContentSignature
+VisualActivityTracker::content_signature(
+    const std::vector<double>& cells,
+    const std::vector<bool>& valid) const {
+    ContentSignature signature;
+    signature.cells.reserve(cells.size());
+    signature.valid = valid;
+    for (double value : cells) {
+        const int level = std::clamp(
+            static_cast<int>(python_round(value / 16.0)), 0, 15);
+        signature.cells.push_back(static_cast<std::uint8_t>(level));
+    }
+    return signature;
+}
+
+bool VisualActivityTracker::update_content_transition(
+    double now, const std::vector<double>& cells,
+    const std::vector<bool>& valid, bool broad_current) {
+    const ContentSignature current = content_signature(cells, valid);
+    if (!stable_content_.has_value()) {
+        stable_content_ = current;
+        last_content_valid_at_ = now;
+        return false;
+    }
+    const std::optional<double> previous_valid_at = last_content_valid_at_;
+    if (previous_valid_at.has_value() &&
+        now - *previous_valid_at >
+            kContentMaximumCaptureGapSeconds) {
+        stable_content_ = current;
+        last_content_valid_at_ = now;
+        candidate_content_.reset();
+        content_candidate_since_.reset();
+        content_candidate_last_at_.reset();
+        content_candidate_observations_ = 0;
+        content_candidate_armed_ = false;
+        return false;
+    }
+
+    const int total_cells = columns_ * rows_;
+    const int minimum_comparable = std::max(
+        8, static_cast<int>(std::ceil(
+               total_cells * kContentMinimumComparableFraction)));
+    int stable_comparable = 0;
+    int stable_changed = 0;
+    std::vector<bool> changed_columns(
+        static_cast<std::size_t>(columns_), false);
+    std::vector<bool> changed_rows(
+        static_cast<std::size_t>(rows_), false);
+    for (int index = 0; index < total_cells; ++index) {
+        if (!valid[index] || !stable_content_->valid[index]) {
+            continue;
+        }
+        ++stable_comparable;
+        if (std::abs(
+                static_cast<int>(current.cells[index]) -
+                static_cast<int>(stable_content_->cells[index])) >=
+            kContentSignificantCellDelta) {
+            ++stable_changed;
+            changed_columns[static_cast<std::size_t>(index % columns_)] =
+                true;
+            changed_rows[static_cast<std::size_t>(index / columns_)] = true;
+        }
+    }
+    const int changed_column_count = static_cast<int>(std::count(
+        changed_columns.begin(), changed_columns.end(), true));
+    const int changed_row_count = static_cast<int>(
+        std::count(changed_rows.begin(), changed_rows.end(), true));
+    const bool adequate_overlap =
+        stable_comparable >= minimum_comparable;
+    if (adequate_overlap) {
+        last_content_valid_at_ = now;
+    }
+    const bool broad_extent =
+        changed_column_count * 2 >= columns_ &&
+        changed_row_count * 2 >= rows_;
+    const bool differs_from_stable =
+        adequate_overlap && broad_extent &&
+        static_cast<double>(stable_changed) >=
+            kContentChangedFraction * stable_comparable;
+
+    if (broad_current) {
+        candidate_content_.reset();
+        content_candidate_since_.reset();
+        content_candidate_last_at_.reset();
+        content_candidate_observations_ = 0;
+        content_candidate_armed_ = true;
+        return false;
+    }
+
+    if (!differs_from_stable) {
+        candidate_content_.reset();
+        content_candidate_since_.reset();
+        content_candidate_last_at_.reset();
+        content_candidate_observations_ = 0;
+        content_candidate_armed_ = false;
+        return false;
+    }
+
+    if (!candidate_content_.has_value()) {
+        if (!content_candidate_armed_ || now < content_cooldown_until_) {
+            return false;
+        }
+        candidate_content_ = current;
+        content_candidate_since_ = now;
+        content_candidate_last_at_ = now;
+        content_candidate_observations_ = 1;
+        content_candidate_armed_ = false;
+        return false;
+    }
+
+    const bool fresh =
+        content_candidate_last_at_.has_value() &&
+        now >= *content_candidate_last_at_ &&
+        now - *content_candidate_last_at_ <=
+            kContentMaximumFreshGapSeconds;
+    int candidate_comparable = 0;
+    int candidate_stable = 0;
+    for (int index = 0; index < total_cells; ++index) {
+        if (!valid[index] || !candidate_content_->valid[index]) {
+            continue;
+        }
+        ++candidate_comparable;
+        if (std::abs(
+                static_cast<int>(current.cells[index]) -
+                static_cast<int>(candidate_content_->cells[index])) <=
+            kContentStableCellDelta) {
+            ++candidate_stable;
+        }
+    }
+    const bool candidate_matches =
+        fresh && candidate_comparable >= minimum_comparable &&
+        static_cast<double>(candidate_stable) >=
+            kContentStableFraction * candidate_comparable;
+    if (!candidate_matches) {
+        if (now < content_cooldown_until_) {
+            candidate_content_.reset();
+            content_candidate_since_.reset();
+            content_candidate_last_at_.reset();
+            content_candidate_observations_ = 0;
+            content_candidate_armed_ = true;
+            return false;
+        }
+        candidate_content_ = current;
+        content_candidate_since_ = now;
+        content_candidate_last_at_ = now;
+        content_candidate_observations_ = 1;
+        content_candidate_armed_ = false;
+        return false;
+    }
+
+    ++content_candidate_observations_;
+    content_candidate_last_at_ = now;
+    const bool settled =
+        content_candidate_observations_ >= kContentMinimumObservations &&
+        content_candidate_since_.has_value() &&
+        now - *content_candidate_since_ >=
+            kContentMinimumSettleSeconds;
+    if (!settled) {
+        return false;
+    }
+
+    stable_content_ = current;
+    candidate_content_.reset();
+    content_candidate_since_.reset();
+    content_candidate_last_at_.reset();
+    content_candidate_observations_ = 0;
+    content_candidate_armed_ = false;
+    content_cooldown_until_ = now + kContentCooldownSeconds;
+    return true;
 }
 
 bool VisualActivityTracker::grace_active_at(double now) const {

@@ -1,4 +1,4 @@
-# Developing DuckEggs 0.4.0-alpha.4
+# Developing DuckEggs 0.4.0-alpha.5
 
 This document preserves the detailed engineering, build, and verification
 information for DuckEggs. See the [root README](../README.md) for the public
@@ -36,8 +36,9 @@ right-click, and **Cancel** leave the existing target unchanged.
 **Automatic** returns to Chrome-only discovery. Opening, selecting, resetting,
 or closing the overlay leaves DuckEggs paused; Resume is a separate action.
 The overlay does not take screenshots or preview window contents. The compact
-600 by 360 window remains usable at its 560 by 340 minimum size with the
-**Choose Window** label.
+fixed 600 by 360 client area keeps the footer buttons and captions visible.
+The window can be minimized, moved, closed or sent to the tray; it does not
+resize or maximize. Learning maps remains independently resizable.
 
 The product quote is presented compactly. UI updates avoid unnecessary
 refreshes to reduce flicker while runtime status changes.
@@ -65,13 +66,15 @@ with a custom amount available through PayPal.
 The brand mark is the approved 1254 by 1254 RGBA DuckEggs raster artwork. Its
 checked-in master PNG is authoritative and read-only; the native header renders
 it as a 52 logical-pixel aspect-fit mark from an embedded 256 px copy (with a
-128 px fallback) without filesystem lookup. The ICO, previews and embedded
-RCDATA images are deterministic Cairo resamples of the complete master canvas,
-preserving its transparent margins and brush, expression, shell and yolk
-details. The ICO contains 32-bit DIB entries with alpha and AND masks at 16, 20,
-24, 32, 40, 48, 64, 80, 96 and 128 px, plus a 256 px PNG entry. The retained
-512 px preview is not an ICO dimension. No SVG is used as a reconstructed
-vector source.
+128 px fallback) without filesystem lookup. Header resources and the 512 px
+preview resample the complete master canvas. ICO entries instead use a centered
+square viewport around the alpha-at-least-16 artwork bounds, with 8 source
+pixels of padding; this retains the approved artwork while reducing transparent
+border space. The 48 px preview and contact sheet show that ICO framing. The ICO
+contains 32-bit DIB entries with alpha and AND masks at 16, 20, 24, 32, 40, 48,
+64, 80, 96 and 128 px, plus a separately rendered 256 px PNG entry. The
+retained 512 px preview is not an ICO dimension. No SVG is used as a
+reconstructed vector source.
 
 Top-level windows select 32 logical-pixel and 16 logical-pixel icon resources
 at their actual DPI and refresh those icons after `WM_DPICHANGED`. Tray icons
@@ -291,7 +294,7 @@ cpack -C Release
 ```
 
 The portable artifact is
-`DuckEggs-0.4.0-alpha.4-windows-x64.zip`. It contains the executable,
+`DuckEggs-0.4.0-alpha.5-windows-x64.zip`. It contains the executable,
 launchers, documentation, and the complete SQLite and nlohmann/json license
 and provenance files under `licenses/`.
 

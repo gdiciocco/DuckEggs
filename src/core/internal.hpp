@@ -47,12 +47,14 @@ bool segment_is_safe(const Point& start, const Point& end, int width,
 std::optional<std::vector<Point>> plan_safe_path(
     const Point& start, const Point& target, int width, int height,
     const Point& cursor, int safety_margin = kSafetyMargin,
-    const std::optional<Rect>& work = std::nullopt);
+    const std::optional<Rect>& work = std::nullopt,
+    bool nondecreasing_clearance = false);
 bool route_is_safe(const Point& start,
                    const std::vector<Point>& waypoints, int width, int height,
                    const Point& cursor,
                    int safety_margin = kSafetyMargin,
-                   const std::optional<Rect>& work = std::nullopt);
+                   const std::optional<Rect>& work = std::nullopt,
+                   bool nondecreasing_clearance = false);
 std::optional<Point> first_safe_step(const Point& start,
                                      const Point& target, int width,
                                      int height, const Point& cursor,
@@ -168,6 +170,8 @@ public:
     InteractionTracker() = default;
 
     void set_state(ActivityState state);
+    void begin_content_overlay(double now);
+    void clear_content_overlay();
     void reset_presence();
     void observe(double now, const Observation& observation);
     void add_manual_preference(const Rect& target, const Rect& reference);
@@ -178,10 +182,24 @@ public:
 
     [[nodiscard]] const ActivityState& state() const { return state_; }
     [[nodiscard]] ActivityState& state() { return state_; }
+    [[nodiscard]] ActivityState effective_state() const;
+    [[nodiscard]] bool content_overlay_active() const {
+        return content_overlay_.has_value();
+    }
+    [[nodiscard]] const std::optional<ActivityState>&
+    content_overlay_state() const {
+        return content_overlay_;
+    }
+    [[nodiscard]] double content_overlay_exposure() const {
+        return content_overlay_exposure_;
+    }
     [[nodiscard]] bool had_activity() const { return had_activity_; }
 
 private:
     ActivityState state_;
+    std::optional<ActivityState> content_overlay_;
+    std::optional<double> content_overlay_started_at_;
+    double content_overlay_exposure_{};
     std::optional<double> last_now_;
     std::optional<Point> last_cursor_;
     bool last_buttons_{};
@@ -195,6 +213,7 @@ struct VisualEvidence {
     bool sustained{};
     bool conflict{};
     bool broad{};
+    bool content_transition{};
     double change_ratio{};
 };
 
@@ -234,6 +253,11 @@ private:
         bool operator==(const Geometry&) const = default;
     };
 
+    struct ContentSignature {
+        std::vector<std::uint8_t> cells;
+        std::vector<bool> valid;
+    };
+
     int columns_;
     int rows_;
     std::vector<double> burst_mask_;
@@ -244,8 +268,16 @@ private:
     std::optional<std::vector<bool>> previous_valid_;
     std::optional<std::vector<bool>> last_valid_;
     std::optional<Geometry> geometry_;
+    std::optional<ContentSignature> stable_content_;
+    std::optional<ContentSignature> candidate_content_;
+    std::optional<double> last_content_valid_at_;
     std::optional<double> last_now_;
     std::optional<double> last_sustained_at_;
+    std::optional<double> content_candidate_since_;
+    std::optional<double> content_candidate_last_at_;
+    double content_cooldown_until_{-1.0};
+    int content_candidate_observations_{};
+    bool content_candidate_armed_{};
     double broad_until_{-1.0};
     double grace_until_{-1.0};
     bool previous_broad_candidate_{};
@@ -256,6 +288,12 @@ private:
     [[nodiscard]] Rect screen_cell(const Rect& bounds, int index) const;
     [[nodiscard]] std::vector<bool> valid_cells(
         const VisualFrame& frame, const std::optional<Rect>& pip_rect) const;
+    [[nodiscard]] ContentSignature content_signature(
+        const std::vector<double>& cells,
+        const std::vector<bool>& valid) const;
+    bool update_content_transition(
+        double now, const std::vector<double>& cells,
+        const std::vector<bool>& valid, bool broad_current);
     void clear_spatial_activity();
 };
 

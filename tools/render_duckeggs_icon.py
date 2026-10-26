@@ -2,8 +2,8 @@
 """Render deterministic DuckEggs raster assets from the approved PNG master.
 
 The checked-in master is the only artwork input. This helper never parses or
-reconstructs shapes: it uses Cairo to resample the complete RGBA canvas,
-including its transparent margins, for previews, RCDATA images and ICO entries.
+reconstructs shapes: previews and RCDATA resample its complete RGBA canvas;
+ICO entries use a square viewport around its meaningful alpha bounds.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import ctypes
 import hashlib
 import os
 import struct
+import tempfile
 from pathlib import Path
 
 
@@ -26,6 +27,8 @@ EMBEDDED_128_PATH = RESOURCES / "duckeggs-logo-128.png"
 CONTACT_SHEET_PATH = ROOT / "build" / "duckeggs-logo-contact-sheet.png"
 
 MASTER_SIZE = 1254
+MEANINGFUL_ALPHA = 16
+ICO_SOURCE_PADDING = 8
 MASTER_SHA256 = (
     "baabe140bf9398af64402b64300ce2b6a85d244273f328b9cb9b003e101271f5"
 )
@@ -151,6 +154,7 @@ class Cairo:
         source: ctypes.c_void_p,
         width: int,
         height: int,
+        crop: tuple[int, int, int, int] | None = None,
     ) -> ctypes.c_void_p:
         destination = self.new_surface(width, height)
         context = self.lib.cairo_create(destination)
@@ -161,12 +165,15 @@ class Cairo:
             self.lib.cairo_set_operator(context, CAIRO_OPERATOR_SOURCE)
             self.lib.cairo_set_source_rgba(context, 0.0, 0.0, 0.0, 0.0)
             self.lib.cairo_paint(context)
-            self.lib.cairo_scale(
-                context,
-                width / self.width(source),
-                height / self.height(source),
+            left, top, crop_width, crop_height = crop or (
+                0, 0, self.width(source), self.height(source)
             )
-            self.lib.cairo_set_source_surface(context, source, 0.0, 0.0)
+            self.lib.cairo_scale(
+                context, width / crop_width, height / crop_height
+            )
+            self.lib.cairo_set_source_surface(
+                context, source, -float(left), -float(top)
+            )
             self.lib.cairo_pattern_set_filter(
                 self.lib.cairo_get_source(context), CAIRO_FILTER_BEST
             )
@@ -319,6 +326,40 @@ def _alpha_summary(
     return transparent, partial, opaque
 
 
+def _meaningful_alpha_bounds(
+    data: ctypes.POINTER(ctypes.c_ubyte),
+    stride: int,
+    width: int,
+    height: int,
+    threshold: int = MEANINGFUL_ALPHA,
+) -> tuple[int, int, int, int]:
+    left, top, right, bottom = width, height, -1, -1
+    for y in range(height):
+        for x in range(width):
+            if data[y * stride + x * 4 + 3] >= threshold:
+                left, top = min(left, x), min(top, y)
+                right, bottom = max(right, x), max(bottom, y)
+    if right < left or bottom < top:
+        raise RuntimeError("approved master has no meaningful alpha bounds")
+    return left, top, right + 1, bottom + 1
+
+
+def _ico_viewport(
+    bounds: tuple[int, int, int, int], width: int, height: int
+) -> tuple[int, int, int, int]:
+    left, top, right, bottom = bounds
+    square = max(right - left, bottom - top) + 2 * ICO_SOURCE_PADDING
+    center_x = (left + right) / 2
+    center_y = (top + bottom) / 2
+    x = round(center_x - square / 2)
+    y = round(center_y - square / 2)
+    if x < 0 or y < 0 or x + square > width or y + square > height:
+        raise RuntimeError("ICO viewport would clip meaningful master alpha")
+    if not (left >= x and top >= y and right <= x + square and bottom <= y + square):
+        raise RuntimeError("ICO viewport clips meaningful master alpha")
+    return x, y, square, square
+
+
 def _make_dib(
     data: ctypes.POINTER(ctypes.c_ubyte),
     stride: int,
@@ -441,6 +482,7 @@ def main() -> None:
     cairo = Cairo()
     master = cairo.open_png(MASTER_PATH)
     surfaces: dict[int, ctypes.c_void_p] = {}
+    ico_surfaces: dict[int, ctypes.c_void_p] = {}
     try:
         if (cairo.width(master), cairo.height(master)) != (
             MASTER_SIZE,
@@ -456,13 +498,26 @@ def main() -> None:
         )
         if master_alpha[0] == 0 or master_alpha[1] + master_alpha[2] == 0:
             raise RuntimeError("approved master has no valid transparent artwork")
+        alpha_data = cairo.lib.cairo_image_surface_get_data(master)
+        alpha_stride = cairo.lib.cairo_image_surface_get_stride(master)
+        viewport = _ico_viewport(
+            _meaningful_alpha_bounds(
+                alpha_data, alpha_stride, MASTER_SIZE, MASTER_SIZE
+            ),
+            MASTER_SIZE,
+            MASTER_SIZE,
+        )
         for size in sorted(set(ICON_SIZES) | set(CONTACT_SIZES) | {48, 512}):
             surfaces[size] = cairo.resize(master, size, size)
+        ico_surfaces = {
+            size: cairo.resize(master, size, size, viewport)
+            for size in sorted(set(ICON_SIZES) | {48})
+        }
 
         embedded_256 = cairo.write_png(surfaces[256], EMBEDDED_256_PATH)
         embedded_128 = cairo.write_png(surfaces[128], EMBEDDED_128_PATH)
         cairo.write_png(surfaces[512], PREVIEW_PATH)
-        cairo.write_png(surfaces[48], SMALL_PREVIEW_PATH)
+        cairo.write_png(ico_surfaces[48], SMALL_PREVIEW_PATH)
         for path, expected in (
             (EMBEDDED_256_PATH, (256, 256)),
             (EMBEDDED_128_PATH, (128, 128)),
@@ -475,7 +530,7 @@ def main() -> None:
         alpha_sets = []
         ico_entries = []
         for size in ICON_SIZES:
-            surface = surfaces[size]
+            surface = ico_surfaces[size]
             cairo.lib.cairo_surface_flush(surface)
             alpha_sets.append(
                 _alpha_summary(
@@ -486,7 +541,10 @@ def main() -> None:
                 )
             )
             if size == 256:
-                image = embedded_256
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    normalized_256 = Path(temporary_directory) / "icon.png"
+                    cairo.write_png(surface, normalized_256)
+                    image = normalized_256.read_bytes()
             else:
                 image = _make_dib(
                     cairo.lib.cairo_image_surface_get_data(surface),
@@ -502,9 +560,11 @@ def main() -> None:
 
         ICO_PATH.write_bytes(_build_ico(ico_entries))
         _validate_ico(ICO_PATH)
-        cairo.make_contact_sheet(surfaces, CONTACT_SHEET_PATH)
+        cairo.make_contact_sheet(ico_surfaces, CONTACT_SHEET_PATH)
     finally:
         for surface in surfaces.values():
+            cairo.destroy(surface)
+        for surface in ico_surfaces.values():
             cairo.destroy(surface)
         cairo.destroy(master)
 

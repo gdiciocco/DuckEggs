@@ -171,10 +171,58 @@ schiva::VisualFrame local_visual_frame(std::uint8_t level) {
     return result;
 }
 
+schiva::VisualFrame tiled_frame(
+    int seed, std::vector<schiva::Rect> excluded = {kPip}) {
+    schiva::VisualFrame result = frame_with_background(0, std::move(excluded));
+    for (int row = 0; row < 9; ++row) {
+        for (int column = 0; column < 16; ++column) {
+            const int level =
+                8 + 15 * ((column * 5 + row * 3 + seed * 4) % 15);
+            set_changed_tile(result, column, row,
+                             static_cast<std::uint8_t>(level));
+        }
+    }
+    return result;
+}
+
 schiva::Decision trigger(schiva::Controller& controller,
                          const schiva::Observation& current = observation()) {
     controller.tick(0.0, current);
     return controller.tick(0.04, current);
+}
+
+std::string manual_cell_for(const schiva::Point& point,
+                            const schiva::Rect& reference) {
+    const int column = std::clamp(
+        (point.x - reference.left) * schiva::detail::kMapColumns /
+            reference.width(),
+        0, schiva::detail::kMapColumns - 1);
+    const int row = std::clamp(
+        (point.y - reference.top) * schiva::detail::kMapRows /
+            reference.height(),
+        0, schiva::detail::kMapRows - 1);
+    return std::to_string(row * schiva::detail::kMapColumns + column);
+}
+
+schiva::Point near_outside_point(const schiva::Rect& rect) {
+    const int middle_x = rect.left + rect.width() / 2;
+    const int middle_y = rect.top + rect.height() / 2;
+    const std::vector<schiva::Point> candidates = {
+        {rect.left - 30, middle_y},
+        {rect.right + 30, middle_y},
+        {middle_x, rect.top - 30},
+        {middle_x, rect.bottom + 30}};
+    for (const schiva::Point& candidate : candidates) {
+        if (kWork.left <= candidate.x &&
+            candidate.x < kWork.right &&
+            kWork.top <= candidate.y &&
+            candidate.y < kWork.bottom &&
+            !schiva::detail::contains_point_with_margin(
+                rect, candidate, schiva::detail::kInnerMargin)) {
+            return candidate;
+        }
+    }
+    throw std::runtime_error("no nearby point outside PiP in work area");
 }
 
 void execute_sql(sqlite3* database, const char* sql) {
@@ -582,6 +630,397 @@ void test_broad_visual_detection() {
     CHECK(!geometry.broad_active_at(0.75));
 }
 
+void test_content_transition_detection() {
+    current_test = "content_transition_detection";
+    schiva::detail::VisualActivityTracker settled;
+    int transitions = 0;
+    const auto observe = [&](double now, const schiva::VisualFrame& frame,
+                             std::optional<schiva::Rect> pip = kPip,
+                             std::string context = "context") {
+        const auto evidence =
+            settled.observe(now, frame, pip, context);
+        transitions += evidence.content_transition ? 1 : 0;
+        return evidence;
+    };
+    observe(0.0, tiled_frame(0));
+    const auto first_broad = observe(0.25, tiled_frame(1));
+    CHECK(first_broad.broad);
+    CHECK(!first_broad.content_transition);
+    CHECK(!observe(0.50, tiled_frame(1)).content_transition);
+    CHECK(!observe(0.75, tiled_frame(1)).content_transition);
+    const auto to_b = observe(1.00, tiled_frame(1));
+    CHECK(to_b.content_transition);
+    CHECK(!observe(1.25, tiled_frame(1)).content_transition);
+    CHECK(!observe(1.75, tiled_frame(0)).content_transition);
+    CHECK(!observe(2.00, tiled_frame(0)).content_transition);
+    CHECK(!observe(2.25, tiled_frame(0)).content_transition);
+    CHECK(observe(2.50, tiled_frame(0)).content_transition);
+    CHECK(transitions == 2);
+
+    schiva::detail::VisualActivityTracker short_animation;
+    short_animation.observe(0.0, tiled_frame(0), kPip, "context");
+    short_animation.observe(0.25, tiled_frame(1), kPip, "context");
+    short_animation.observe(0.50, tiled_frame(1), kPip, "context");
+    bool short_transition = false;
+    for (int index = 0; index < 5; ++index) {
+        short_transition =
+            short_transition ||
+            short_animation
+                .observe(0.75 + index * 0.25, tiled_frame(0), kPip,
+                         "context")
+                .content_transition;
+    }
+    CHECK(!short_transition);
+
+    schiva::detail::VisualActivityTracker scrolling;
+    scrolling.observe(0.0, tiled_frame(0), kPip, "context");
+    bool scroll_transition = false;
+    for (int seed = 1; seed <= 12; ++seed) {
+        scroll_transition =
+            scroll_transition ||
+            scrolling
+                .observe(seed * 0.25, tiled_frame(seed), kPip,
+                         "context")
+                .content_transition;
+    }
+    CHECK(!scroll_transition);
+
+    schiva::detail::VisualActivityTracker slow_ramp;
+    int slow_ramp_transitions = 0;
+    const auto observe_uniform =
+        [&](double now, std::uint8_t level) {
+            const auto evidence = slow_ramp.observe(
+                now, frame_with_background(level, {kPip}), kPip,
+                "context");
+            slow_ramp_transitions +=
+                evidence.content_transition ? 1 : 0;
+            return evidence;
+        };
+    observe_uniform(0.0, 0);
+    const std::vector<std::uint8_t> ramp{
+        24, 36, 48, 60, 72, 84, 96, 108, 120, 132, 144, 156};
+    for (std::size_t index = 0; index < ramp.size(); ++index) {
+        CHECK(!observe_uniform(0.25 * (index + 1), ramp[index])
+                   .content_transition);
+    }
+    CHECK(slow_ramp_transitions == 0);
+    CHECK(!observe_uniform(3.25, 180).content_transition);
+    CHECK(!observe_uniform(3.50, 180).content_transition);
+    CHECK(!observe_uniform(3.75, 180).content_transition);
+    CHECK(observe_uniform(4.00, 180).content_transition);
+    for (int index = 0; index < 8; ++index) {
+        CHECK(!observe_uniform(4.25 + index * 0.25, 180)
+                   .content_transition);
+    }
+    CHECK(slow_ramp_transitions == 1);
+
+    schiva::detail::VisualActivityTracker oscillation;
+    int oscillation_transitions = 0;
+    const auto observe_oscillation =
+        [&](double now, std::uint8_t level) {
+            const auto evidence = oscillation.observe(
+                now, frame_with_background(level, {kPip}), kPip,
+                "context");
+            oscillation_transitions +=
+                evidence.content_transition ? 1 : 0;
+            return evidence;
+        };
+    observe_oscillation(0.0, 36);
+    for (int index = 0; index < 12; ++index) {
+        CHECK(!observe_oscillation(
+                   0.25 * (index + 1),
+                   static_cast<std::uint8_t>(
+                       index % 2 == 0 ? 48 : 36))
+                   .content_transition);
+    }
+    CHECK(oscillation_transitions == 0);
+    CHECK(!observe_oscillation(3.25, 200).content_transition);
+    CHECK(!observe_oscillation(3.50, 200).content_transition);
+    CHECK(!observe_oscillation(3.75, 200).content_transition);
+    CHECK(observe_oscillation(4.00, 200).content_transition);
+    CHECK(oscillation_transitions == 1);
+
+    schiva::detail::VisualActivityTracker localized;
+    localized.observe(0.0, tiled_frame(0), kPip, "context");
+    bool local_transition = false;
+    for (int phase = 1; phase <= 10; ++phase) {
+        auto dynamic = tiled_frame(0);
+        set_pixel_region(
+            dynamic, {28, 16, 40, 28},
+            static_cast<std::uint8_t>(20 + phase * 20));
+        local_transition =
+            local_transition ||
+            localized
+                .observe(phase * 0.25, dynamic, kPip, "context")
+                .content_transition;
+    }
+    CHECK(!local_transition);
+
+    schiva::detail::VisualActivityTracker excluded_only;
+    excluded_only.observe(0.0, frame_with_background(60, {kPip}), kPip,
+                          "context");
+    bool excluded_transition = false;
+    for (int index = 0; index < 4; ++index) {
+        auto changed = frame_with_background(60, {kPip});
+        set_pixel_region(changed, {8, 8, 34, 22}, 220);
+        excluded_transition =
+            excluded_transition ||
+            excluded_only
+                .observe(0.25 + index * 0.25, changed, kPip, "context")
+                .content_transition;
+    }
+    CHECK(!excluded_transition);
+
+    schiva::detail::VisualActivityTracker moved_mask;
+    moved_mask.observe(0.0, tiled_frame(0), kPip, "context");
+    const schiva::Rect moved_pip{500, 250, 720, 430};
+    bool moved_mask_transition = false;
+    for (int index = 0; index < 4; ++index) {
+        auto revealed = tiled_frame(0, {moved_pip});
+        set_pixel_region(revealed, {8, 8, 34, 22}, 220);
+        moved_mask_transition =
+            moved_mask_transition ||
+            moved_mask
+                .observe(0.25 + index * 0.25, revealed, moved_pip,
+                         "context")
+                .content_transition;
+    }
+    CHECK(!moved_mask_transition);
+
+    schiva::detail::VisualActivityTracker insufficient;
+    insufficient.observe(
+        0.0, frame_with_background(10, {kVisualBounds}), kPip, "context");
+    bool insufficient_transition = false;
+    for (int index = 0; index < 4; ++index) {
+        insufficient_transition =
+            insufficient_transition ||
+            insufficient
+                .observe(
+                    0.25 + index * 0.25,
+                    frame_with_background(220, {kVisualBounds}), kPip,
+                    "context")
+                .content_transition;
+    }
+    CHECK(!insufficient_transition);
+
+    schiva::detail::VisualActivityTracker masked_gap;
+    masked_gap.observe(0.0, tiled_frame(0), kPip, "context");
+    masked_gap.observe(
+        0.25, frame_with_background(0, {kVisualBounds}), kPip, "context");
+    masked_gap.observe(
+        1.00, frame_with_background(0, {kVisualBounds}), kPip, "context");
+    masked_gap.observe(
+        2.00, frame_with_background(0, {kVisualBounds}), kPip, "context");
+    CHECK(!masked_gap.observe(2.25, tiled_frame(1), kPip, "context")
+               .content_transition);
+    CHECK(!masked_gap.observe(2.50, tiled_frame(1), kPip, "context")
+               .content_transition);
+    CHECK(!masked_gap.observe(2.75, tiled_frame(1), kPip, "context")
+               .content_transition);
+
+    schiva::detail::VisualActivityTracker gap;
+    gap.observe(0.0, tiled_frame(0), kPip, "context");
+    CHECK(!gap.observe(3.0, tiled_frame(0), kPip, "context")
+               .content_transition);
+    CHECK(!gap.observe(3.25, tiled_frame(0), kPip, "context")
+               .content_transition);
+    CHECK(!gap.observe(3.50, tiled_frame(0), kPip, "context")
+               .content_transition);
+    CHECK(!gap.observe(3.75, tiled_frame(1), kPip, "context")
+               .content_transition);
+    CHECK(!gap.observe(4.00, tiled_frame(1), kPip, "context")
+               .content_transition);
+    CHECK(!gap.observe(4.25, tiled_frame(1), kPip, "context")
+               .content_transition);
+    CHECK(gap.observe(4.50, tiled_frame(1), kPip, "context")
+              .content_transition);
+    CHECK(!gap.observe(5.00, tiled_frame(1), kPip, "context")
+               .content_transition);
+
+    schiva::detail::VisualActivityTracker geometry;
+    geometry.observe(0.0, tiled_frame(0), kPip, "context");
+    auto changed_geometry = tiled_frame(1);
+    changed_geometry.bounds = {10, 10, 810, 460};
+    CHECK(!geometry.observe(0.25, changed_geometry, kPip, "context")
+               .content_transition);
+    CHECK(!geometry.observe(0.50, changed_geometry, kPip, "context")
+               .content_transition);
+    CHECK(!geometry.observe(0.75, changed_geometry, kPip, "context")
+               .content_transition);
+
+    schiva::detail::VisualActivityTracker context_change;
+    context_change.observe(0.0, tiled_frame(0), kPip, "app-a");
+    CHECK(!context_change
+               .observe(0.25, tiled_frame(1), kPip, "app-b")
+               .content_transition);
+    CHECK(!context_change
+               .observe(0.50, tiled_frame(1), kPip, "app-b")
+               .content_transition);
+    CHECK(!context_change
+               .observe(0.75, tiled_frame(1), kPip, "app-b")
+               .content_transition);
+}
+
+void test_content_overlay_effective_activity() {
+    current_test = "content_overlay_effective_activity";
+    const schiva::Rect reference{0, 0, 1000, 700};
+    const schiva::Rect target{0, 0, 100, 100};
+    schiva::detail::ActivityState baseline;
+    baseline.short_map.add(50, 50, reference, 4.0);
+    baseline.long_map.add(50, 50, reference, 2.0);
+    baseline.manual_map.add(50, 50, reference, 1.25);
+
+    schiva::detail::InteractionTracker tracker;
+    tracker.set_state(baseline);
+    schiva::detail::InteractionTracker durable_only;
+    durable_only.set_state(baseline);
+    const double baseline_risk = tracker.risk_for(target, reference);
+    const double baseline_manual =
+        tracker.manual_preference_for(target, reference);
+    CHECK(baseline_risk > 0.0);
+    CHECK(baseline_manual > 0.0);
+
+    tracker.begin_content_overlay(10.0);
+    CHECK(tracker.content_overlay_active());
+    const double overlay_risk = tracker.risk_for(target, reference);
+    CHECK(overlay_risk < baseline_risk);
+    CHECK_NEAR(tracker.manual_preference_for(target, reference),
+               baseline_manual, 1e-12);
+    CHECK(tracker.effective_state().manual_map.as_sparse() ==
+          tracker.state().manual_map.as_sparse());
+    CHECK(tracker.state().short_map.as_sparse() ==
+          baseline.short_map.as_sparse());
+
+    schiva::detail::LinUCBModel model;
+    const schiva::detail::VisualActivityTracker visual;
+    const schiva::detail::PlacementScorer scorer(model, tracker, visual);
+    auto active_observation = observation(kPip, {50, 50});
+    active_observation.foreground->rect = reference;
+    const auto before =
+        scorer.score(10.0, active_observation, target, kPip);
+    CHECK_NEAR(before.activity_risk, overlay_risk, 1e-12);
+    CHECK_NEAR(before.manual_preference, baseline_manual, 1e-12);
+
+    tracker.observe(10.0, active_observation);
+    tracker.observe(10.25, active_observation);
+    durable_only.observe(10.0, active_observation);
+    durable_only.observe(10.25, active_observation);
+    const double evolved_baseline_risk =
+        durable_only.risk_for(target, reference);
+    const double evolved_manual =
+        durable_only.manual_preference_for(target, reference);
+    CHECK(tracker.state().short_map.as_sparse() ==
+          durable_only.state().short_map.as_sparse());
+    CHECK(tracker.state().long_map.as_sparse() ==
+          durable_only.state().long_map.as_sparse());
+    const double built_risk = tracker.risk_for(target, reference);
+    CHECK(built_risk > overlay_risk);
+    const auto after =
+        scorer.score(10.25, active_observation, target, kPip);
+    CHECK_NEAR(after.activity_risk, built_risk, 1e-12);
+    CHECK_NEAR(after.manual_preference, evolved_manual, 1e-12);
+
+    tracker.begin_content_overlay(10.50);
+    CHECK(tracker.content_overlay_active());
+    CHECK(tracker.risk_for(target, reference) < built_risk);
+    CHECK(tracker.effective_state().manual_map.as_sparse() ==
+          tracker.state().manual_map.as_sparse());
+
+    tracker.clear_content_overlay();
+    CHECK(!tracker.content_overlay_active());
+    CHECK_NEAR(tracker.risk_for(target, reference),
+               evolved_baseline_risk, 1e-12);
+}
+
+void test_content_overlay_interaction_evidence() {
+    current_test = "content_overlay_interaction_evidence";
+    const schiva::Rect reference{0, 0, 1000, 700};
+    const schiva::Rect target{0, 0, 100, 100};
+    schiva::detail::ActivityState baseline;
+    baseline.short_map.add(50, 50, reference, 4.0);
+    baseline.long_map.add(50, 50, reference, 2.0);
+    baseline.manual_map.add(50, 50, reference, 1.25);
+
+    schiva::detail::InteractionTracker tracker;
+    tracker.set_state(baseline);
+    auto idle = observation(kPip, {50, 50});
+    idle.foreground->rect = reference;
+    idle.input_active = false;
+    idle.input_age = -1.0;
+    tracker.observe(0.0, idle);
+
+    tracker.begin_content_overlay(10.0);
+    auto recent_at_transition = idle;
+    recent_at_transition.input_active = true;
+    recent_at_transition.input_age = 0.1;
+    tracker.observe(10.0, recent_at_transition);
+    CHECK(tracker.content_overlay_state().has_value());
+    CHECK(tracker.content_overlay_state()->short_map.as_sparse().empty());
+    CHECK(tracker.content_overlay_state()->long_map.as_sparse().empty());
+    CHECK_NEAR(tracker.content_overlay_exposure(), 0.0, 1e-12);
+    const double idle_risk = tracker.risk_for(target, reference);
+    const auto idle_effective = tracker.effective_state();
+    const auto& idle_durable_short = tracker.state().short_map.values();
+    for (std::size_t index = 0;
+         index < idle_durable_short.size(); ++index) {
+        if (idle_durable_short[index] > 0.0) {
+            CHECK_NEAR(idle_effective.short_map.values()[index],
+                       0.25 * idle_durable_short[index], 1e-12);
+            break;
+        }
+    }
+
+    tracker.observe(15.0, idle);
+    CHECK(tracker.content_overlay_state()->short_map.as_sparse().empty());
+    CHECK(tracker.content_overlay_state()->long_map.as_sparse().empty());
+    CHECK_NEAR(tracker.content_overlay_exposure(), 0.0, 1e-12);
+    const auto evolved_effective = tracker.effective_state();
+    const auto& effective_short = evolved_effective.short_map.values();
+    const auto& durable_short = tracker.state().short_map.values();
+    for (std::size_t index = 0; index < durable_short.size(); ++index) {
+        if (durable_short[index] > 0.0) {
+            CHECK_NEAR(effective_short[index],
+                       0.25 * durable_short[index], 1e-12);
+        }
+    }
+
+    auto active = idle;
+    active.input_active = true;
+    active.input_age = 0.1;
+    tracker.observe(15.25, active);
+    CHECK(tracker.content_overlay_exposure() > 0.0);
+    CHECK(!tracker.content_overlay_state()->short_map.as_sparse().empty());
+    CHECK(tracker.risk_for(target, reference) > idle_risk);
+
+    tracker.begin_content_overlay(20.0);
+    auto invalid_input = idle;
+    invalid_input.input_active = true;
+    invalid_input.input_age = -1.0;
+    tracker.observe(20.25, invalid_input);
+    CHECK(tracker.content_overlay_state()->short_map.as_sparse().empty());
+    CHECK_NEAR(tracker.content_overlay_exposure(), 0.0, 1e-12);
+
+    tracker.begin_content_overlay(25.0);
+    auto active_elsewhere = observation(kPip, {700, 500});
+    active_elsewhere.foreground->rect = reference;
+    active_elsewhere.input_age = 0.1;
+    for (int index = 0; index < 160; ++index) {
+        tracker.observe(25.25 + index * 0.25, active_elsewhere);
+    }
+    CHECK(tracker.content_overlay_exposure() > 39.0);
+    const auto faded_effective = tracker.effective_state();
+    const auto& faded_long = faded_effective.long_map.values();
+    const auto& durable_long = tracker.state().long_map.values();
+    constexpr std::size_t target_cell = 25;
+    CHECK(durable_long[target_cell] > 0.0);
+    const double baseline_ratio =
+        faded_long[target_cell] / durable_long[target_cell];
+    CHECK(baseline_ratio >= 0.05);
+    CHECK(baseline_ratio < 0.06);
+    CHECK(faded_effective.manual_map.as_sparse() ==
+          tracker.state().manual_map.as_sparse());
+}
+
 void test_broad_controller_suppression() {
     current_test = "broad_controller_suppression";
     TempDirectory temp;
@@ -754,10 +1193,7 @@ void test_broad_motion_and_reward_safety() {
         schiva::LearningStore store(temp.file("return-feedback.sqlite3"));
         schiva::Controller controller(store);
         auto [rect, now] = completed_cursor_motion(controller);
-        schiva::Point returning{rect.left - 30, rect.top - 30};
-        if (returning.x < 0 || returning.y < 0) {
-            returning = {rect.right + 30, rect.bottom + 30};
-        }
+        const schiva::Point returning = near_outside_point(rect);
         now += 0.05;
         controller.tick(
             now, observation(rect, returning, false, "pip-handle",
@@ -887,6 +1323,604 @@ void test_storage_schema_and_fixture() {
     reopened.close();
 }
 
+void test_content_adaptation_persistence() {
+    current_test = "content_adaptation_persistence";
+    TempDirectory temp;
+    {
+        schiva::LearningStore store(temp.file("no-visual.sqlite3"));
+        schiva::Controller controller(store);
+        const schiva::Point far{900, 700};
+        auto idle = observation(kPip, far);
+        idle.input_active = false;
+        idle.input_age = -1.0;
+        controller.tick(0.0, idle);
+        controller.tick(1.0, idle);
+        controller.tick(2.0, idle);
+        CHECK(!controller.status().value("content_overlay_active", false));
+        CHECK(controller.status().value("content_transition_count", 0) == 0);
+        CHECK(controller.status()["learning_count"] == 0);
+        controller.close();
+        store.close();
+    }
+    {
+        schiva::LearningStore store(temp.file("observe-only.sqlite3"));
+        schiva::Controller controller(store, true);
+        const schiva::Point far{900, 700};
+        controller.tick(
+            0.0, observation(kPip, far, false, "pip-handle",
+                             tiled_frame(0)));
+        controller.tick(
+            0.25, observation(kPip, far, false, "pip-handle",
+                              tiled_frame(1)));
+        controller.tick(
+            0.50, observation(kPip, far, false, "pip-handle",
+                              tiled_frame(1)));
+        controller.tick(
+            0.75, observation(kPip, far, false, "pip-handle",
+                              tiled_frame(1)));
+        CHECK(!controller.status().value("content_overlay_active", false));
+        CHECK(controller.status().value("content_transition_count", 0) == 0);
+        controller.tick(
+            1.00, observation(kPip, far, false, "pip-handle",
+                              tiled_frame(1)));
+        CHECK(controller.status().value("content_overlay_active", false));
+        CHECK(controller.status()["content_transition_count"] == 1);
+        CHECK(!controller.status()["motion_active"].get<bool>());
+        CHECK(controller.status()["learning_count"] == 0);
+        CHECK(store.stats()["decision_records"] == 0);
+        controller.close();
+        store.close();
+    }
+    const auto database = temp.file("content.sqlite3");
+    const std::string profile_key = "editor.exe|editor|maximized";
+    schiva::detail::LinUCBModel pretrained(12, 0.35);
+    const std::vector<double> pretrained_features{
+        1.0, 0.25, -0.25, 0.1, 0.2, 0.0,
+        0.0, 0.15, 0.0, 0.4, 0.3, 0.2};
+    pretrained.update(pretrained_features, 0.35);
+    {
+        schiva::LearningStore store(database);
+        auto profile = schiva::detail::StoreAccess::load_profile(
+            store, profile_key, "editor.exe", "editor", "maximized");
+        CHECK(profile.has_value());
+        if (!profile.has_value()) {
+            return;
+        }
+        profile->short_map = {{"4", 2.0}, {"9", 0.5}};
+        profile->long_map = {{"4", 3.0}, {"12", 1.0}};
+        profile->manual_map = {{"9", 0.75}};
+        CHECK(schiva::detail::StoreAccess::save_profile(store, *profile));
+        schiva::detail::StoreAccess::save_model(store, pretrained.state());
+
+        schiva::Controller controller(store);
+        const schiva::Point far{900, 700};
+        const auto page_a = tiled_frame(0);
+        const auto page_b = tiled_frame(1);
+        controller.tick(
+            0.0, observation(kPip, far, false, "pip-handle", page_a));
+        CHECK(!controller.status().value("content_overlay_active", false));
+        CHECK(controller.status().value("content_transition_count", 0) == 0);
+        const schiva::Json before = controller.insights();
+        CHECK(before["layers"]["activity"][4].get<double>() > 0.0);
+        CHECK(before["layers"]["manual"][9].get<double>() > 0.0);
+
+        controller.tick(
+            0.25, observation(kPip, far, false, "pip-handle", page_b));
+        controller.tick(
+            0.50, observation(kPip, far, false, "pip-handle", page_b));
+        CHECK(!controller.status().value("content_overlay_active", false));
+        CHECK(controller.status().value("content_transition_count", 0) == 0);
+        controller.tick(
+            0.75, observation(kPip, far, false, "pip-handle", page_b));
+        CHECK(!controller.status().value("content_overlay_active", false));
+        CHECK(controller.status().value("content_transition_count", 0) == 0);
+        controller.tick(
+            1.00, observation(kPip, far, false, "pip-handle", page_b));
+        CHECK(controller.status().value("content_overlay_active", false));
+        CHECK(controller.status()["content_transition_count"] == 1);
+        const schiva::Json after_b = controller.insights();
+        CHECK(after_b["layers"]["activity"][4].get<double>() <
+              before["layers"]["activity"][4].get<double>());
+        CHECK(after_b["layers"]["manual"][9].get<double>() > 0.0);
+        CHECK(controller.status()["learning_count"] == 1);
+        const auto model_after_b =
+            schiva::detail::StoreAccess::load_model(store);
+        CHECK(model_after_b.has_value());
+        CHECK(model_after_b.has_value() &&
+              model_after_b->at("updates").get<int>() == 1);
+        CHECK(model_after_b.has_value() &&
+              model_after_b->at("inverse") ==
+                  pretrained.state().at("inverse"));
+        CHECK(store.stats()["decision_records"] == 0);
+
+        controller.tick(
+            1.75, observation(kPip, far, false, "pip-handle", page_a));
+        controller.tick(
+            2.00, observation(kPip, far, false, "pip-handle", page_a));
+        controller.tick(
+            2.25, observation(kPip, far, false, "pip-handle", page_a));
+        controller.tick(
+            2.50, observation(kPip, far, false, "pip-handle", page_a));
+        CHECK(controller.status().value("content_overlay_active", false));
+        CHECK(controller.status()["content_transition_count"] == 2);
+        CHECK(controller.status()["learning_count"] == 1);
+
+        auto other_app = observation(kPip, far, false, "pip-handle",
+                                     page_a);
+        other_app.foreground = schiva::WindowInfo{
+            "other-foreground", "browser.exe", "Document", kWork};
+        controller.tick(2.75, other_app);
+        CHECK(!controller.status().value("content_overlay_active", false));
+        CHECK(controller.status()["context_key"] ==
+              "browser.exe|document|maximized");
+        controller.tick(
+            3.00, observation(kPip, far, false, "pip-handle", page_a));
+        CHECK(!controller.status().value("content_overlay_active", false));
+        CHECK(controller.status()["content_transition_count"] == 2);
+        controller.close();
+        store.close();
+    }
+
+    {
+        schiva::LearningStore reopened(database);
+        CHECK(reopened.stats()["schema_version"] == 1);
+        const auto profile = schiva::detail::StoreAccess::peek_profile(
+            reopened, profile_key);
+        CHECK(profile.has_value());
+        CHECK(profile.has_value() && profile->short_map.contains("4"));
+        CHECK(profile.has_value() && profile->short_map.contains("227"));
+        CHECK(profile.has_value() && profile->short_map["4"].get<double>() >
+                                           1.0);
+        CHECK(profile.has_value() && profile->long_map.contains("4"));
+        CHECK(profile.has_value() && profile->manual_map.contains("9"));
+        CHECK(profile.has_value() &&
+              profile->manual_map["9"].get<double>() > 0.70);
+        const auto model =
+            schiva::detail::StoreAccess::load_model(reopened);
+        CHECK(model.has_value() && model->at("updates").get<int>() == 1);
+        CHECK(reopened.stats()["decision_records"] == 0);
+        reopened.close();
+    }
+}
+
+void test_content_transition_censors_pending_outcome() {
+    current_test = "content_transition_censors_pending_outcome";
+    TempDirectory temp;
+    const schiva::Point far{900, 700};
+    const schiva::Point near{510, 250};
+    const auto masked_page = [](int seed, const schiva::Rect& pip) {
+        return tiled_frame(seed, {pip});
+    };
+    const auto move_away_from_cursor =
+        [&](schiva::Controller& controller, schiva::Rect& rect,
+            double& now) {
+            controller.tick(
+                0.0, observation(kPip, near, false, "pip-handle",
+                                 masked_page(0, kPip)));
+            schiva::Decision decision = controller.tick(
+                0.04, observation(kPip, near, false, "pip-handle",
+                                  masked_page(0, kPip)));
+            CHECK(decision.move_to.has_value());
+            now = 0.04;
+            while (controller.status()["motion_active"] == true &&
+                   decision.move_to.has_value() && now < 2.0) {
+                rect = rect.moved_to(decision.move_to->x,
+                                     decision.move_to->y);
+                now += 1.0 / 120.0;
+                decision = controller.tick(
+                    now, observation(rect, far, false, "pip-handle",
+                                     masked_page(0, rect)));
+            }
+            CHECK(!controller.status()["motion_active"].get<bool>());
+        };
+
+    {
+        schiva::LearningStore store(temp.file("pending.sqlite3"));
+        schiva::Controller controller(store);
+        schiva::Rect rect = kPip;
+        double now = 0.0;
+        move_away_from_cursor(controller, rect, now);
+        CHECK(controller.status()["learning_count"] == 0);
+
+        now += 0.25;
+        controller.tick(
+            now, observation(rect, far, false, "pip-handle",
+                             masked_page(0, rect)));
+        now += 0.25;
+        controller.tick(
+            now, observation(rect, far, false, "pip-handle",
+                             masked_page(0, rect)));
+        CHECK(controller.status().value("content_transition_count", 0) == 0);
+
+        for (int index = 0; index < 3; ++index) {
+            now += 0.25;
+            controller.tick(
+                now, observation(rect, far, false, "pip-handle",
+                                 masked_page(1, rect)));
+            CHECK(controller.status().value(
+                      "content_transition_count", 0) == 0);
+        }
+        now += 0.25;
+        const schiva::Decision transitioned = controller.tick(
+            now, observation(rect, far, false, "pip-handle",
+                             masked_page(1, rect)));
+        CHECK(controller.status()["content_transition_count"] == 1);
+        CHECK(controller.status().value("content_overlay_active", false));
+        CHECK(controller.status()["learning_count"] == 0);
+        CHECK(transitioned.state != "movement_failed");
+        CHECK(transitioned.state != "manual_correction");
+
+        controller.tick(
+            now + 15.0,
+            observation(rect, far, false, "pip-handle",
+                        masked_page(1, rect)));
+        CHECK(controller.status()["learning_count"] == 0);
+        CHECK(store.stats()["decision_records"] == 0);
+        controller.close();
+        store.close();
+    }
+
+    {
+        schiva::LearningStore store(temp.file("control.sqlite3"));
+        schiva::Controller controller(store);
+        schiva::Rect rect = kPip;
+        double now = 0.0;
+        move_away_from_cursor(controller, rect, now);
+        for (int index = 0; index < 48; ++index) {
+            now += 0.25;
+            controller.tick(
+                now, observation(rect, far, false, "pip-handle",
+                                 masked_page(0, rect)));
+        }
+        CHECK(controller.status()["learning_count"] == 1);
+        controller.close();
+        store.close();
+    }
+}
+
+void test_cursor_escape_clearance_regressions() {
+    current_test = "cursor_escape_clearance_regressions";
+    TempDirectory temp;
+    const schiva::Rect pip{600, 450, 920, 630};
+    const schiva::Point far{1750, 1000};
+    const std::string profile_key = "editor.exe|editor|maximized";
+    struct Case {
+        const char* name;
+        schiva::Point cursor;
+        double x_bias;
+        double y_bias;
+        schiva::Point preferred;
+    };
+    const std::vector<Case> cases = {
+        {"right", {1010, 540}, 8.0, 0.0, {1800, 540}},
+        {"left", {510, 540}, -8.0, 0.0, {100, 540}},
+        {"top", {760, 360}, 0.0, -8.0, {760, 80}},
+        {"bottom", {760, 720}, 0.0, 8.0, {760, 1010}},
+        {"bottom-right", {1010, 720}, 8.0, 8.0, {1810, 1010}},
+    };
+
+    for (std::size_t index = 0; index < cases.size(); ++index) {
+        const Case& item = cases[index];
+        schiva::LearningStore store(
+            temp.file(std::string("cursor-") + item.name + ".sqlite3"));
+        const auto loaded = schiva::detail::StoreAccess::load_profile(
+            store, profile_key, "editor.exe", "editor", "maximized");
+        CHECK(loaded.has_value());
+        if (!loaded.has_value()) {
+            store.close();
+            continue;
+        }
+        auto profile = *loaded;
+        profile.manual_map =
+            schiva::Json::object();
+        profile.manual_map[manual_cell_for(item.preferred, kWork)] = 1.0;
+        CHECK(schiva::detail::StoreAccess::save_profile(store, profile));
+
+        std::vector<std::vector<double>> identity(
+            schiva::detail::kFeatureDimension,
+            std::vector<double>(
+                schiva::detail::kFeatureDimension, 0.0));
+        for (int feature = 0;
+             feature < schiva::detail::kFeatureDimension; ++feature) {
+            identity[static_cast<std::size_t>(feature)]
+                    [static_cast<std::size_t>(feature)] = 1.0;
+        }
+        std::vector<double> bias(
+            schiva::detail::kFeatureDimension, 0.0);
+        bias[1] = item.x_bias;
+        bias[2] = item.y_bias;
+        const schiva::detail::LinUCBModel pretrained(
+            schiva::detail::kFeatureDimension, 0.35, identity, bias, 40);
+        schiva::detail::StoreAccess::save_model(
+            store, pretrained.state());
+
+        schiva::Controller controller(store);
+        controller.tick(
+            0.0, observation(pip, far, false, "pip-handle",
+                             frame_with_background(60, {pip})));
+        controller.tick(
+            0.04, observation(pip, item.cursor, false, "pip-handle"));
+        schiva::Decision decision = controller.tick(
+            0.08, observation(pip, item.cursor, false, "pip-handle"));
+        CHECK(decision.reason == "cursor_near");
+        CHECK(decision.move_to.has_value());
+        CHECK(decision.recommendation.has_value());
+        if (!decision.move_to.has_value()) {
+            controller.close();
+            store.close();
+            continue;
+        }
+
+        schiva::Rect applied = pip;
+        double previous_clearance =
+            schiva::detail::distance_to_rect(applied, item.cursor);
+        double now = 0.08;
+        while (decision.move_to.has_value() && now < 2.0) {
+            applied = applied.moved_to(
+                decision.move_to->x, decision.move_to->y);
+            const double clearance =
+                schiva::detail::distance_to_rect(applied, item.cursor);
+            CHECK(clearance + 1.0 >= previous_clearance);
+            previous_clearance = clearance;
+            now += 1.0 / 120.0;
+            decision = controller.tick(
+                now, observation(applied, item.cursor, false,
+                                 "pip-handle"));
+        }
+        CHECK(now < 2.0);
+        CHECK(!controller.status()["motion_active"].get<bool>());
+        CHECK(schiva::detail::vacated_fraction(pip, applied) >=
+              schiva::detail::kClearanceGoal);
+        CHECK(decision.state != "no_safe_target");
+        controller.close();
+        store.close();
+    }
+
+    {
+        schiva::LearningStore store(temp.file("cramped.sqlite3"));
+        schiva::Controller controller(store);
+        const schiva::Rect cramped{0, 0, 1600, 900};
+        const schiva::Point approach{1700, 450};
+        controller.tick(
+            0.0, observation(cramped, far, false, "pip-handle",
+                             frame_with_background(60, {cramped})));
+        controller.tick(
+            0.04, observation(cramped, approach, false, "pip-handle"));
+        schiva::Decision decision = controller.tick(
+            0.08, observation(cramped, approach, false, "pip-handle"));
+        CHECK(decision.reason == "cursor_near:cramped_fallback");
+        CHECK(decision.move_to.has_value());
+        CHECK(decision.recommendation.has_value());
+        if (decision.recommendation.has_value()) {
+            CHECK(schiva::detail::distance_to_rect(
+                      *decision.recommendation, approach) <=
+                  schiva::detail::kNearMargin);
+        }
+
+        schiva::Rect applied = cramped;
+        double now = 0.08;
+        while (decision.move_to.has_value() && now < 2.0) {
+            applied = applied.moved_to(
+                decision.move_to->x, decision.move_to->y);
+            now += 1.0 / 120.0;
+            decision = controller.tick(
+                now, observation(applied, approach, false,
+                                 "pip-handle"));
+        }
+        CHECK(now < 2.0);
+        CHECK(!controller.status()["motion_active"].get<bool>());
+        CHECK(schiva::detail::vacated_fraction(cramped, applied) >=
+              schiva::detail::kMinFallbackClearance);
+        CHECK(decision.state != "no_safe_target");
+        controller.close();
+        store.close();
+    }
+
+    {
+        schiva::LearningStore store(temp.file("cursor-away.sqlite3"));
+        schiva::Controller controller(store);
+        const schiva::Point approach{510, 250};
+        controller.tick(
+            0.0, observation(kPip, approach, false, "pip-handle"));
+        schiva::Decision decision = controller.tick(
+            0.04, observation(kPip, approach, false, "pip-handle"));
+        CHECK(decision.reason == "cursor_near");
+        CHECK(decision.recommendation.has_value());
+        CHECK(decision.move_to.has_value());
+        if (!decision.move_to.has_value()) {
+            controller.close();
+            store.close();
+            return;
+        }
+
+        schiva::Rect applied = kPip.moved_to(
+            decision.move_to->x, decision.move_to->y);
+        double now = 0.056;
+        decision = controller.tick(
+            now, observation(applied, far, false, "pip-handle"));
+        CHECK(controller.status()["motion_active"] == true);
+        CHECK(decision.state != "cursor_conflict");
+        while (decision.move_to.has_value() && now < 2.0) {
+            applied = applied.moved_to(
+                decision.move_to->x, decision.move_to->y);
+            now += 1.0 / 120.0;
+            decision = controller.tick(
+                now, observation(applied, far, false, "pip-handle"));
+        }
+        CHECK(now < 2.0);
+        CHECK(!controller.status()["motion_active"].get<bool>());
+        CHECK(schiva::detail::vacated_fraction(kPip, applied) >=
+              schiva::detail::kClearanceGoal);
+        CHECK(decision.state != "movement_failed");
+        CHECK(decision.state != "manual_correction");
+        CHECK(controller.status()["learning_count"] == 0);
+        controller.close();
+        store.close();
+    }
+}
+
+void test_content_transition_preserves_committed_escape() {
+    current_test = "content_transition_preserves_committed_escape";
+    TempDirectory temp;
+    schiva::LearningStore store(temp.file("preserve.sqlite3"));
+    schiva::Controller controller(store);
+    const schiva::Point far{1300, 800};
+    const schiva::Point approach{510, 250};
+    const auto page_a = tiled_frame(0);
+    const auto page_b = [&](const schiva::Rect& pip) {
+        return tiled_frame(1, {pip});
+    };
+    controller.tick(
+        0.0, observation(kPip, far, false, "pip-handle", page_a));
+    controller.tick(
+        0.25, observation(kPip, far, false, "pip-handle",
+                          page_b(kPip)));
+    controller.tick(
+        0.50, observation(kPip, far, false, "pip-handle",
+                          page_b(kPip)));
+    controller.tick(
+        0.75, observation(kPip, far, false, "pip-handle",
+                          page_b(kPip)));
+    controller.tick(
+        0.90, observation(kPip, approach, false, "pip-handle",
+                          page_b(kPip)));
+    schiva::Decision decision = controller.tick(
+        0.95, observation(kPip, approach, false, "pip-handle",
+                          page_b(kPip)));
+    CHECK(decision.reason == "cursor_near");
+    CHECK(decision.move_to.has_value());
+    CHECK(decision.recommendation.has_value());
+    const auto committed_target = decision.recommendation;
+
+    schiva::Rect applied = kPip;
+    double now = 0.95;
+    constexpr double frame_interval = 1.0 / 120.0;
+    while (now + frame_interval < 1.01 &&
+           decision.move_to.has_value()) {
+        applied = applied.moved_to(
+            decision.move_to->x, decision.move_to->y);
+        now += frame_interval;
+        decision = controller.tick(
+            now, observation(applied, approach, false, "pip-handle"));
+    }
+    CHECK(now < 1.01);
+    CHECK(controller.status().value(
+              "content_transition_count", 0) == 0);
+    if (decision.move_to.has_value()) {
+        applied = applied.moved_to(
+            decision.move_to->x, decision.move_to->y);
+    }
+    now = 1.01;
+    decision = controller.tick(
+        now, observation(applied, approach, false, "pip-handle",
+                         page_b(applied)));
+    CHECK(controller.status()["content_transition_count"] == 1);
+    CHECK(controller.status()["motion_active"] == true);
+    CHECK(decision.recommendation == committed_target);
+    CHECK(decision.move_to.has_value());
+
+    while (decision.move_to.has_value() && now < 2.0) {
+        applied = applied.moved_to(
+            decision.move_to->x, decision.move_to->y);
+        now += 1.0 / 120.0;
+        decision = controller.tick(
+            now, observation(applied, approach, false, "pip-handle"));
+    }
+    CHECK(now < 2.0);
+    CHECK(!controller.status()["motion_active"].get<bool>());
+    CHECK(schiva::detail::vacated_fraction(kPip, applied) >=
+          schiva::detail::kClearanceGoal);
+    CHECK(controller.status()["learning_count"] == 0);
+
+    now += 0.13;
+    const schiva::Point returning = near_outside_point(applied);
+    schiva::Decision returning_decision = controller.tick(
+        now, observation(applied, returning, false, "pip-handle",
+                         page_b(applied)));
+    CHECK(controller.status()["learning_count"] == 0);
+    CHECK(store.stats()["decision_records"] == 0);
+    now += 0.13;
+    if (returning_decision.move_to.has_value()) {
+        applied = applied.moved_to(
+            returning_decision.move_to->x,
+            returning_decision.move_to->y);
+    }
+    returning_decision = controller.tick(
+        now, observation(applied, returning, false, "pip-handle",
+                         page_b(applied)));
+    CHECK(controller.status()["learning_count"] == 0);
+    CHECK(store.stats()["decision_records"] == 0);
+    controller.close();
+    store.close();
+}
+
+void test_localized_visual_survives_content_adaptation() {
+    current_test = "localized_visual_survives_content_adaptation";
+    TempDirectory temp;
+    const schiva::Point far{700, 400};
+    const auto localized = [](int seed, const schiva::Rect& pip,
+                              std::uint8_t level) {
+        auto frame = tiled_frame(seed, {pip});
+        set_pixel_region(frame, {36, 24, 44, 28}, level);
+        return frame;
+    };
+    const auto run = [&](bool adapt, const std::string& name) {
+        schiva::LearningStore store(temp.file(name + ".sqlite3"));
+        schiva::Controller controller(store);
+        if (adapt) {
+            controller.tick(
+                0.0, observation(kPip, far, false, "pip-handle",
+                                 tiled_frame(0, {kPip})));
+            for (double now : {0.25, 0.50, 0.75, 1.00}) {
+                controller.tick(
+                    now, observation(kPip, far, false, "pip-handle",
+                                     tiled_frame(1, {kPip})));
+            }
+            CHECK(controller.status()["content_transition_count"] == 1);
+            CHECK(controller.status().value(
+                      "content_overlay_active", false));
+        } else {
+            for (double now : {0.0, 0.25, 0.50, 0.75, 1.00}) {
+                controller.tick(
+                    now, observation(kPip, far, false, "pip-handle",
+                                     tiled_frame(1, {kPip})));
+            }
+            CHECK(!controller.status().contains(
+                "content_transition_count"));
+            CHECK(!controller.status().value(
+                "content_overlay_active", false));
+        }
+
+        schiva::Decision decision;
+        double now = 1.25;
+        for (std::uint8_t level : {std::uint8_t{60},
+                                   std::uint8_t{210}}) {
+            now += 0.5;
+            decision = controller.tick(
+                now, observation(kPip, far, false, "pip-handle",
+                                 localized(1, kPip, level)));
+        }
+        CHECK(decision.reason == "sustained_visual");
+        CHECK(decision.move_to.has_value());
+        schiva::Rect applied = kPip;
+        while (decision.move_to.has_value() && now < 3.0) {
+            applied = applied.moved_to(
+                decision.move_to->x, decision.move_to->y);
+            now += 1.0 / 120.0;
+            decision = controller.tick(
+                now, observation(applied, far, false, "pip-handle"));
+        }
+        CHECK(now < 3.0);
+        CHECK(!controller.status()["motion_active"].get<bool>());
+        CHECK(schiva::detail::vacated_fraction(kPip, applied) >=
+              schiva::detail::kClearanceGoal);
+        controller.close();
+        store.close();
+    };
+    run(false, "control");
+    run(true, "adapted");
+}
+
 void test_storage_roundtrip_and_bounds() {
     current_test = "storage_roundtrip_and_bounds";
     TempDirectory temp;
@@ -1011,12 +2045,11 @@ void test_holds_stalls_manual_and_observe_only() {
         CHECK(resumed.state == "moving");
         CHECK(resumed.move_to.has_value());
 
-        const schiva::Rect interpolation_collision{140, 100, 460, 280};
         controller.tick(
             0.35,
-            observation(interpolation_collision, {510, 250}, true));
+            observation(applied, {510, 250}, true));
         const schiva::Decision collision_release = controller.tick(
-            0.36, observation(interpolation_collision));
+            0.36, observation(applied));
         CHECK(collision_release.state == "moving_stalled");
         CHECK(controller.status()["learning_count"] == 0);
 
@@ -1212,11 +2245,27 @@ int main() {
         {"domain_and_linucb", test_domain_and_linucb},
         {"geometry_activity_visual", test_geometry_activity_visual},
         {"broad_visual_detection", test_broad_visual_detection},
+        {"content_transition_detection",
+         test_content_transition_detection},
+        {"content_overlay_effective_activity",
+         test_content_overlay_effective_activity},
+        {"content_overlay_interaction_evidence",
+         test_content_overlay_interaction_evidence},
         {"broad_controller_suppression",
          test_broad_controller_suppression},
         {"broad_motion_and_reward_safety",
          test_broad_motion_and_reward_safety},
         {"storage_schema_and_fixture", test_storage_schema_and_fixture},
+        {"content_adaptation_persistence",
+         test_content_adaptation_persistence},
+        {"content_transition_censors_pending_outcome",
+         test_content_transition_censors_pending_outcome},
+        {"cursor_escape_clearance_regressions",
+         test_cursor_escape_clearance_regressions},
+        {"content_transition_preserves_committed_escape",
+         test_content_transition_preserves_committed_escape},
+        {"localized_visual_survives_content_adaptation",
+         test_localized_visual_survives_content_adaptation},
         {"storage_roundtrip_and_bounds", test_storage_roundtrip_and_bounds},
         {"smooth_motion_and_clearance", test_smooth_motion_and_clearance},
         {"holds_stalls_manual_and_observe_only",

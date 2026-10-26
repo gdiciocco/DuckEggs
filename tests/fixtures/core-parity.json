@@ -41,66 +41,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              112,
-              100
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              126,
-              100
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              145,
-              100
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              162,
+              99,
               108
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -109,15 +58,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              137
+              98,
+              119
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -126,15 +75,49 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
+              96,
+              132
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              94,
+              149
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              91,
               170
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -143,15 +126,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              208
+              88,
+              193
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -160,15 +143,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              250
+              85,
+              218
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -177,15 +160,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              296
+              82,
+              246
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -194,15 +177,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              345
+              78,
+              276
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -211,15 +194,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              397
+              74,
+              307
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -228,15 +211,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              453
+              70,
+              340
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -245,15 +228,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              511
+              66,
+              374
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -262,15 +245,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              571
+              61,
+              409
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -279,15 +262,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              634
+              57,
+              445
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -296,15 +279,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              699
+              52,
+              481
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -313,15 +296,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              766
+              48,
+              518
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -330,15 +313,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              162,
-              834
+              43,
+              554
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -347,15 +330,253 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              165,
+              39,
+              590
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              34,
+              625
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              30,
+              659
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              26,
+              692
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              22,
+              724
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              18,
+              754
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              15,
+              781
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              12,
+              807
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              9,
+              830
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              6,
+              850
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              4,
+              867
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              2,
+              881
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              1,
+              891
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              0,
+              898
+            ],
+            "pip_id": "pip-handle",
+            "reason": "cursor_near",
+            "recommendation": [
+              0,
+              900,
+              320,
+              1080
+            ],
+            "state": "moving"
+          },
+          {
+            "context_key": "editor.exe|editor|maximized",
+            "learning_count": 0,
+            "move_to": [
+              0,
               900
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -363,478 +584,137 @@
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              235,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              307,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              378,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              450,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              522,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              593,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              665,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              735,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              804,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              872,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              939,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              1004,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              1067,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              1127,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
-            "move_to": [
-              1185,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1241,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1293,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1342,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1388,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1430,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1468,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1501,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1530,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1555,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1574,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1588,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1597,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
-          },
-          {
-            "context_key": "editor.exe|editor|maximized",
-            "learning_count": 0,
-            "move_to": [
-              1600,
-              900
-            ],
-            "pip_id": "pip-handle",
-            "reason": "cursor_near",
-            "recommendation": [
-              1600,
-              900,
-              1920,
-              1080
-            ],
-            "state": "moving"
+            "move_to": null,
+            "pip_id": null,
+            "reason": "",
+            "recommendation": null,
+            "state": "cooldown"
           },
           {
             "context_key": "editor.exe|editor|maximized",
@@ -1968,157 +1848,229 @@
               null,
               null,
               1.0,
-              0.916416,
-              0.839367,
-              0.76952,
-              0.707617,
-              0.654489,
-              0.611062,
-              0.57829,
-              0.557064,
-              0.548071,
-              0.54977,
-              0.557722,
-              0.571701,
-              0.591648,
-              0.619251,
-              0.658496,
-              0.708808,
-              0.769175,
-              0.83853,
-              0.915862,
+              0.934787,
+              0.874703,
+              0.820144,
+              0.771565,
+              0.729494,
+              0.694513,
+              0.667264,
+              0.648364,
+              0.638324,
+              0.636095,
+              0.638493,
+              0.645331,
+              0.656552,
+              0.673402,
+              0.698942,
+              0.732883,
+              0.774587,
+              0.823364,
+              0.878537,
               null,
               null,
               null,
               null,
-              0.899638,
-              0.81121,
-              0.718667,
-              0.633279,
-              0.56614,
-              0.507785,
-              0.469694,
-              0.442765,
-              0.417678,
-              0.405936,
-              0.405907,
-              0.412459,
-              0.425351,
-              0.444527,
-              0.471943,
-              0.512163,
-              0.564336,
-              0.627107,
-              0.699119,
-              0.779196,
+              0.875098,
+              0.808388,
+              0.737811,
+              0.672882,
+              0.622957,
+              0.579644,
+              0.552574,
+              0.533646,
+              0.514596,
+              0.50518,
+              0.504286,
+              0.508242,
+              0.516832,
+              0.529977,
+              0.549117,
+              0.577734,
+              0.61535,
+              0.66109,
+              0.714037,
+              0.773385,
               null,
               null,
               null,
               null,
-              0.816242,
-              0.723182,
-              0.620621,
-              0.525087,
-              0.452641,
-              0.388821,
-              0.350284,
-              0.323281,
-              0.2937,
-              0.278788,
-              0.276876,
-              0.281887,
-              0.293541,
-              0.311785,
-              0.338968,
-              0.380416,
-              0.434789,
-              0.500196,
-              0.574949,
-              0.657696,
+              0.760229,
+              0.692169,
+              0.615817,
+              0.545215,
+              0.493991,
+              0.449389,
+              0.425475,
+              0.41004,
+              0.390576,
+              0.381692,
+              0.382234,
+              0.387859,
+              0.398301,
+              0.413468,
+              0.435067,
+              0.467158,
+              0.50892,
+              0.559075,
+              0.616456,
+              0.680118,
               null,
               null,
               null,
               null,
-              0.751364,
-              0.654077,
-              0.552178,
-              0.45689,
-              0.379291,
-              0.309948,
-              0.260515,
-              0.222424,
-              0.187465,
-              0.168772,
-              0.164848,
-              0.168184,
-              0.178439,
-              0.195579,
-              0.222545,
-              0.265718,
-              0.322786,
-              0.391054,
-              0.468473,
-              0.553628,
+              0.656714,
+              0.587541,
+              0.514542,
+              0.447196,
+              0.394812,
+              0.348972,
+              0.319368,
+              0.298186,
+              0.277858,
+              0.269239,
+              0.271303,
+              0.27869,
+              0.291067,
+              0.308327,
+              0.3326,
+              0.368748,
+              0.415252,
+              0.470217,
+              0.532199,
+              0.600177,
               null,
               null,
               null,
               null,
-              0.706388,
-              0.605468,
-              0.51013,
-              0.420973,
-              0.338688,
-              0.264118,
-              0.198395,
-              0.143255,
-              0.101628,
-              0.078048,
-              0.071992,
-              0.073542,
-              0.082255,
-              0.098104,
-              0.125082,
-              0.171021,
-              0.231446,
-              0.302609,
-              0.38234,
-              0.46936,
+              0.565942,
+              0.495987,
+              0.431269,
+              0.372115,
+              0.318891,
+              0.272032,
+              0.232161,
+              0.200296,
+              0.178316,
+              0.169313,
+              0.172943,
+              0.182164,
+              0.19653,
+              0.215911,
+              0.24321,
+              0.284405,
+              0.336383,
+              0.396431,
+              0.462973,
+              0.535064,
               null,
               null,
               null,
               null,
-              0.682384,
-              0.578611,
-              0.480169,
-              0.387593,
-              0.301472,
-              0.222482,
-              0.151457,
-              0.089653,
-              0.039707,
-              0.008676,
-              0.000304,
+              0.489328,
+              0.419021,
+              0.354012,
+              0.294589,
+              0.241046,
+              0.193687,
+              0.152902,
+              0.119338,
+              0.094613,
+              0.083488,
+              0.088629,
+              0.099714,
+              0.116079,
+              0.13757,
+              0.168811,
+              0.216848,
+              0.274889,
+              0.339855,
+              0.410517,
+              0.486212,
+              null,
+              null,
+              null,
+              null,
+              0.427546,
+              0.357412,
+              0.292686,
+              0.23364,
+              0.180517,
+              0.133539,
+              0.092875,
+              0.058702,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              0.233443,
+              0.302231,
+              0.37606,
+              0.454555,
+              null,
+              null,
+              null,
+              null,
+              0.38288,
+              0.313442,
+              0.249564,
+              0.191523,
+              0.13957,
+              0.093902,
+              0.054674,
+              0.021979,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              0.214051,
+              0.284843,
+              0.360574,
+              0.4409,
+              null,
+              null,
+              null,
+              null,
+              0.353219,
+              0.284811,
+              0.222099,
+              0.165365,
+              0.114855,
+              0.070759,
+              0.033229,
+              0.002344,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              0.210429,
+              0.282747,
+              0.359953,
+              0.441697,
+              null,
+              null,
+              null,
+              null,
+              0.339212,
+              0.272164,
+              0.210925,
+              0.15577,
+              0.106936,
+              0.06461,
+              0.028936,
               0.0,
-              0.007043,
-              0.021422,
-              0.049458,
-              0.100274,
-              0.164515,
-              0.238031,
-              0.319203,
-              0.407157,
-              null,
-              null,
-              null,
-              null,
-              0.680143,
-              0.574412,
-              0.473838,
-              0.378916,
-              0.290172,
-              0.208146,
-              0.133396,
-              0.066527,
               null,
               null,
               null,
@@ -2127,130 +2079,58 @@
               null,
               null,
               null,
-              0.125874,
-              0.199978,
-              0.281037,
-              0.368595,
-              null,
-              null,
-              null,
-              null,
-              0.699132,
-              0.592393,
-              0.49072,
-              0.394607,
-              0.304563,
-              0.22112,
-              0.144813,
-              0.076161,
+              0.222404,
+              0.295824,
+              0.374103,
+              0.456867,
               null,
               null,
               null,
               null,
               null,
-              null,
-              null,
-              null,
-              0.11766,
-              0.189873,
-              0.269083,
-              0.354887,
-              null,
-              null,
-              null,
-              null,
-              0.73579,
-              0.628648,
-              0.526491,
-              0.429803,
-              0.339088,
-              0.254867,
-              0.177664,
-              0.108001,
+              0.182279,
+              0.161423,
+              0.146785,
+              0.119435,
+              0.079633,
+              0.046859,
+              0.021606,
+              0.00518,
+              0.002193,
+              0.016028,
+              0.035994,
+              0.061301,
+              0.091719,
+              0.132092,
+              0.189153,
+              0.255555,
+              0.328393,
+              0.40655,
+              0.4894,
               null,
               null,
               null,
               null,
               null,
               null,
-              null,
-              null,
-              0.131672,
-              0.20139,
-              0.278188,
-              0.361676,
-              null,
-              null,
-              null,
-              null,
-              0.789401,
-              0.682409,
-              0.580331,
-              0.483635,
-              0.392812,
-              0.30837,
-              0.230829,
-              0.16072,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              0.16723,
-              0.234058,
-              0.308028,
-              0.388751,
-              null,
-              null,
-              null,
-              null,
-              0.861985,
-              0.755925,
-              0.65478,
-              0.55903,
-              0.469202,
-              0.385893,
-              0.309832,
-              0.242092,
-              0.184953,
-              0.145221,
-              0.127698,
-              0.117881,
-              0.115107,
-              0.119455,
-              0.137486,
-              0.177748,
-              0.208408,
-              0.225877,
-              0.251152,
-              null,
-              null,
-              null,
-              null,
-              null,
-              0.953424,
-              0.84906,
-              0.74969,
-              0.655834,
-              0.568089,
-              0.4872,
-              0.414158,
-              0.350505,
-              0.29896,
-              0.264001,
-              0.245487,
-              0.234074,
-              0.229438,
-              0.231679,
-              0.24475,
-              0.276101,
-              0.276839,
-              0.243563,
-              null,
-              null,
+              0.132067,
+              0.158512,
+              0.153278,
+              0.116721,
+              0.087731,
+              0.067155,
+              0.056677,
+              0.059326,
+              0.074877,
+              0.09621,
+              0.122774,
+              0.154345,
+              0.193752,
+              0.246811,
+              0.31015,
+              0.381032,
+              0.457911,
+              0.53987,
               null,
               null,
               null,
@@ -2281,11 +2161,11 @@
           },
           "layout_bin": "maximized",
           "learning_count": 1,
-          "note": "Profilo attivo. Le mappe di utilizzo e preferenza sono dati appresi; il rischio visivo dal vivo riguarda solo i pixel osservabili. Il posizionamento \u00e8 una classifica relativa per l'intero rettangolo del PiP.",
+          "note": "Active profile. Usage and preference maps are learned data; live visual risk covers only observable pixels. Placement is a relative ranking for the entire PiP rectangle.",
           "pip_rect": [
+            0.0,
             0.833333,
-            0.833333,
-            1.0,
+            0.166667,
             1.0
           ],
           "pip_size": [
@@ -2332,15 +2212,15 @@
             "context_key": "editor.exe|editor|maximized",
             "learning_count": 0,
             "move_to": [
-              112,
-              100
+              99,
+              108
             ],
             "pip_id": "pip-handle",
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "moving"
@@ -2352,9 +2232,9 @@
             "pip_id": null,
             "reason": "movement_frozen",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "mouse_button_hold"
@@ -3111,23 +2991,23 @@
               null,
               null,
               null,
+              0.56446,
+              0.586059,
+              0.613596,
+              0.630274,
+              0.64513,
+              0.662737,
+              0.683182,
+              0.706181,
+              0.730938,
+              0.757367,
+              0.785406,
+              0.815307,
+              0.847753,
+              0.882637,
+              0.91977,
+              0.958957,
               1.0,
-              0.974595,
-              0.955635,
-              0.923424,
-              0.888573,
-              0.856443,
-              0.827137,
-              0.800476,
-              0.775915,
-              0.753462,
-              0.733139,
-              0.71517,
-              0.700055,
-              0.687717,
-              0.678031,
-              0.670859,
-              0.666061,
               null,
               null,
               null,
@@ -3136,22 +3016,22 @@
               null,
               null,
               null,
-              0.834493,
-              0.828035,
-              0.818362,
-              0.803717,
-              0.770331,
-              0.73992,
-              0.712303,
-              0.686903,
-              0.663737,
-              0.642833,
-              0.624438,
-              0.609074,
-              0.596648,
-              0.587008,
-              0.579997,
-              0.575464,
+              0.454957,
+              0.494425,
+              0.531647,
+              0.565147,
+              0.583197,
+              0.604302,
+              0.628157,
+              0.653861,
+              0.68131,
+              0.710431,
+              0.741501,
+              0.775286,
+              0.811631,
+              0.850295,
+              0.891027,
+              0.933602,
               null,
               null,
               null,
@@ -3159,239 +3039,239 @@
               null,
               null,
               null,
-              0.788141,
-              0.75848,
-              0.735291,
-              0.729294,
-              0.723481,
-              0.68875,
-              0.657152,
-              0.628508,
-              0.602196,
-              0.578242,
-              0.556688,
-              0.537801,
-              0.522136,
-              0.509563,
-              0.499901,
-              0.492983,
-              0.488644,
+              0.357327,
+              0.377754,
+              0.40432,
+              0.446078,
+              0.488605,
+              0.507106,
+              0.528908,
+              0.553689,
+              0.58041,
+              0.608943,
+              0.639201,
+              0.671504,
+              0.706725,
+              0.744637,
+              0.78491,
+              0.827238,
+              0.871359,
               null,
               null,
               null,
               null,
-              0.960736,
-              0.903676,
-              0.833576,
-              0.768757,
-              0.726526,
-              0.686599,
+              0.353326,
+              0.349434,
+              0.335246,
+              0.32636,
+              0.337429,
+              0.351159,
+              0.382211,
+              0.416252,
+              0.43518,
+              0.45768,
+              0.483447,
+              0.511236,
+              0.540896,
+              0.572323,
+              0.605909,
+              0.64268,
+              0.682266,
+              0.724208,
+              0.768137,
+              0.813776,
+              null,
+              null,
+              null,
+              null,
+              0.295951,
+              0.295765,
+              0.297964,
+              0.302681,
+              0.310028,
+              0.320114,
+              0.33305,
+              0.349,
+              0.36827,
+              0.391386,
+              0.418168,
+              0.447051,
+              0.477851,
+              0.510444,
+              0.545363,
+              0.583844,
+              0.625207,
+              0.668822,
+              0.714293,
+              0.761352,
+              null,
+              null,
+              null,
+              null,
+              0.23315,
+              0.232945,
+              0.235242,
+              0.240169,
+              0.247833,
+              0.258309,
+              0.271656,
+              0.287952,
+              0.307419,
+              0.330858,
+              0.358636,
+              0.3886,
+              0.420505,
+              0.454214,
+              0.490584,
+              0.531057,
+              0.574235,
+              0.619412,
               0.666256,
-              0.648649,
-              0.612504,
-              0.579648,
-              0.549918,
-              0.522628,
-              0.49782,
-              0.475547,
-              0.456104,
-              0.44007,
-              0.427268,
-              0.417488,
-              0.410553,
-              0.406302,
+              0.714551,
               null,
               null,
               null,
               null,
-              0.914629,
-              0.860793,
-              0.80865,
-              0.758375,
-              0.710161,
-              0.664218,
-              0.620773,
-              0.580085,
-              0.542472,
-              0.508298,
-              0.477453,
-              0.449145,
-              0.423429,
-              0.400373,
-              0.380313,
-              0.363838,
-              0.350689,
-              0.340642,
-              0.333538,
-              0.329228,
+              0.17568,
+              0.175639,
+              0.17822,
+              0.183558,
+              0.191748,
+              0.202842,
+              0.216853,
+              0.233748,
               null,
               null,
               null,
               null,
-              0.862206,
-              0.807225,
-              0.753887,
-              0.702372,
-              0.652876,
-              0.605609,
-              0.560797,
-              0.518689,
-              0.479597,
-              0.444025,
-              0.41207,
-              0.382739,
-              0.356088,
-              0.332205,
-              0.311486,
-              0.294484,
-              0.280815,
-              0.270303,
-              0.262829,
-              0.258276,
               null,
               null,
               null,
               null,
-              0.815741,
-              0.759812,
-              0.70548,
-              0.652928,
-              0.602355,
-              0.553972,
-              0.508004,
-              0.464682,
+              0.529644,
+              0.576066,
+              0.623993,
+              0.673265,
               null,
               null,
               null,
               null,
+              0.125698,
+              0.126019,
+              0.129079,
+              0.135011,
+              0.143912,
+              0.155824,
+              0.170737,
+              0.18859,
               null,
               null,
               null,
               null,
-              0.217844,
-              0.206617,
-              0.198553,
-              0.193545,
               null,
               null,
               null,
               null,
-              0.776543,
-              0.719921,
-              0.664854,
-              0.611528,
-              0.560143,
-              0.510919,
-              0.464087,
-              0.419882,
+              0.49287,
+              0.540045,
+              0.588675,
+              0.638607,
               null,
               null,
               null,
               null,
+              0.082592,
+              0.083452,
+              0.087142,
+              0.093795,
+              0.103496,
+              0.116278,
+              0.132113,
+              0.15092,
               null,
               null,
               null,
               null,
-              0.164079,
-              0.151953,
-              0.143112,
-              0.137458,
               null,
               null,
               null,
               null,
-              0.743629,
-              0.686549,
-              0.630991,
-              0.577135,
-              0.525186,
-              0.475363,
-              0.427897,
-              0.38303,
+              0.462126,
+              0.509821,
+              0.558935,
+              0.609314,
               null,
               null,
               null,
               null,
+              0.046869,
+              0.048443,
+              0.052907,
+              0.06038,
+              0.070937,
+              0.084594,
+              0.10131,
+              0.120992,
               null,
               null,
               null,
               null,
-              0.118921,
-              0.105796,
-              0.096041,
-              0.08957,
               null,
               null,
               null,
               null,
-              0.716964,
-              0.659674,
-              0.603878,
-              0.549753,
-              0.497499,
-              0.447333,
-              0.399485,
-              0.354195,
+              0.437355,
+              0.485339,
+              0.534715,
+              0.585332,
               null,
               null,
               null,
               null,
+              0.019304,
+              0.021782,
+              0.027172,
+              0.035582,
+              0.047077,
+              0.06167,
+              0.079337,
+              0.100044,
+              0.123876,
+              0.151475,
+              0.183262,
+              0.217135,
+              0.252814,
+              0.290135,
+              0.329943,
+              0.373587,
+              0.41963,
+              0.467438,
+              0.516711,
+              0.567255,
               null,
               null,
               null,
               null,
-              0.082863,
-              0.06868,
-              0.057904,
-              0.05046,
-              null,
-              null,
-              null,
-              null,
-              0.696806,
-              0.639565,
-              0.583795,
-              0.529674,
-              0.477398,
-              0.427175,
-              0.379234,
-              0.333821,
-              0.291206,
-              0.251723,
-              0.215363,
-              0.181542,
-              0.150403,
-              0.122093,
-              0.096838,
-              0.074881,
-              0.05626,
-              0.041018,
-              0.029161,
-              0.020631,
-              null,
-              null,
-              null,
-              null,
-              0.683018,
-              0.62606,
-              0.570565,
-              0.5167,
-              0.464655,
-              0.41463,
-              0.366847,
-              0.321537,
-              0.278944,
-              0.23929,
-              0.202472,
-              0.168102,
-              0.136323,
-              0.107288,
-              0.081226,
-              0.058412,
-              0.038863,
-              0.022613,
-              0.009671,
               0.0,
+              0.003535,
+              0.009968,
+              0.019396,
+              0.031878,
+              0.047438,
+              0.066079,
+              0.087834,
+              0.112862,
+              0.141558,
+              0.173726,
+              0.207868,
+              0.243758,
+              0.281235,
+              0.320778,
+              0.363537,
+              0.408834,
+              0.45608,
+              0.504909,
+              0.555077,
               null,
               null,
               null,
@@ -3422,7 +3302,7 @@
           },
           "layout_bin": "maximized",
           "learning_count": 1,
-          "note": "Profilo attivo. Le mappe di utilizzo e preferenza sono dati appresi; il rischio visivo dal vivo riguarda solo i pixel osservabili. Il posizionamento \u00e8 una classifica relativa per l'intero rettangolo del PiP.",
+          "note": "Active profile. Usage and preference maps are learned data; live visual risk covers only observable pixels. Placement is a relative ranking for the entire PiP rectangle.",
           "pip_rect": [
             0.072917,
             0.092593,
@@ -4544,7 +4424,7 @@
           },
           "layout_bin": "snapped-right",
           "learning_count": 0,
-          "note": "Profilo attivo. Le mappe di utilizzo e preferenza sono dati appresi; il rischio visivo dal vivo riguarda solo i pixel osservabili. Il posizionamento \u00e8 una classifica relativa per l'intero rettangolo del PiP.",
+          "note": "Active profile. Usage and preference maps are learned data; live visual risk covers only observable pixels. Placement is a relative ranking for the entire PiP rectangle.",
           "pip_rect": [
             0.3125,
             0.185185,
@@ -4605,9 +4485,9 @@
             "pip_id": null,
             "reason": "cursor_near",
             "recommendation": [
-              1600,
+              0,
               900,
-              1920,
+              320,
               1080
             ],
             "state": "observe_only"
@@ -5652,7 +5532,7 @@
           },
           "layout_bin": "maximized",
           "learning_count": 0,
-          "note": "Profilo attivo. Le mappe di utilizzo e preferenza sono dati appresi; il rischio visivo dal vivo riguarda solo i pixel osservabili. Il posizionamento \u00e8 una classifica relativa per l'intero rettangolo del PiP.",
+          "note": "Active profile. Usage and preference maps are learned data; live visual risk covers only observable pixels. Placement is a relative ranking for the entire PiP rectangle.",
           "pip_rect": [
             0.052083,
             0.092593,
@@ -6729,10 +6609,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  112,
-                  100,
-                  432,
-                  280
+                  99,
+                  108,
+                  419,
+                  288
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -6773,10 +6653,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  126,
-                  100,
-                  446,
-                  280
+                  98,
+                  119,
+                  418,
+                  299
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -6817,10 +6697,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  145,
-                  100,
-                  465,
-                  280
+                  96,
+                  132,
+                  416,
+                  312
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -6861,10 +6741,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  108,
-                  482,
-                  288
+                  94,
+                  149,
+                  414,
+                  329
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -6905,10 +6785,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  137,
-                  482,
-                  317
+                  91,
+                  170,
+                  411,
+                  350
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -6949,10 +6829,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  170,
-                  482,
-                  350
+                  88,
+                  193,
+                  408,
+                  373
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -6993,10 +6873,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  208,
-                  482,
-                  388
+                  85,
+                  218,
+                  405,
+                  398
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7037,10 +6917,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  250,
-                  482,
-                  430
+                  82,
+                  246,
+                  402,
+                  426
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7081,10 +6961,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  296,
-                  482,
-                  476
+                  78,
+                  276,
+                  398,
+                  456
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7125,10 +7005,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  345,
-                  482,
-                  525
+                  74,
+                  307,
+                  394,
+                  487
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7169,10 +7049,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  397,
-                  482,
-                  577
+                  70,
+                  340,
+                  390,
+                  520
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7213,10 +7093,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  453,
-                  482,
-                  633
+                  66,
+                  374,
+                  386,
+                  554
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7257,10 +7137,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  511,
-                  482,
-                  691
+                  61,
+                  409,
+                  381,
+                  589
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7301,10 +7181,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  571,
-                  482,
-                  751
+                  57,
+                  445,
+                  377,
+                  625
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7345,10 +7225,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  634,
-                  482,
-                  814
+                  52,
+                  481,
+                  372,
+                  661
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7389,10 +7269,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  699,
-                  482,
-                  879
+                  48,
+                  518,
+                  368,
+                  698
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7433,10 +7313,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  766,
-                  482,
-                  946
+                  43,
+                  554,
+                  363,
+                  734
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7477,10 +7357,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  162,
-                  834,
-                  482,
-                  1014
+                  39,
+                  590,
+                  359,
+                  770
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7521,10 +7401,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  165,
-                  900,
-                  485,
-                  1080
+                  34,
+                  625,
+                  354,
+                  805
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7565,10 +7445,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  235,
-                  900,
-                  555,
-                  1080
+                  30,
+                  659,
+                  350,
+                  839
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7609,10 +7489,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  307,
-                  900,
-                  627,
-                  1080
+                  26,
+                  692,
+                  346,
+                  872
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7653,10 +7533,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  378,
-                  900,
-                  698,
-                  1080
+                  22,
+                  724,
+                  342,
+                  904
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7697,10 +7577,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  450,
-                  900,
-                  770,
-                  1080
+                  18,
+                  754,
+                  338,
+                  934
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7741,10 +7621,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  522,
-                  900,
-                  842,
-                  1080
+                  15,
+                  781,
+                  335,
+                  961
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7785,10 +7665,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  593,
-                  900,
-                  913,
-                  1080
+                  12,
+                  807,
+                  332,
+                  987
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7829,10 +7709,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  665,
-                  900,
-                  985,
-                  1080
+                  9,
+                  830,
+                  329,
+                  1010
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7873,10 +7753,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  735,
-                  900,
-                  1055,
-                  1080
+                  6,
+                  850,
+                  326,
+                  1030
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7917,10 +7797,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  804,
-                  900,
-                  1124,
-                  1080
+                  4,
+                  867,
+                  324,
+                  1047
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -7961,10 +7841,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  872,
-                  900,
-                  1192,
-                  1080
+                  2,
+                  881,
+                  322,
+                  1061
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -8005,10 +7885,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  939,
-                  900,
-                  1259,
-                  1080
+                  1,
+                  891,
+                  321,
+                  1071
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -8049,10 +7929,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1004,
-                  900,
-                  1324,
-                  1080
+                  0,
+                  898,
+                  320,
+                  1078
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -8093,9 +7973,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1067,
+                  0,
                   900,
-                  1387,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8137,9 +8017,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1127,
+                  0,
                   900,
-                  1447,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8181,9 +8061,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1185,
+                  0,
                   900,
-                  1505,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8225,9 +8105,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1241,
+                  0,
                   900,
-                  1561,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8269,9 +8149,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1293,
+                  0,
                   900,
-                  1613,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8313,9 +8193,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1342,
+                  0,
                   900,
-                  1662,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8357,9 +8237,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1388,
+                  0,
                   900,
-                  1708,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8401,9 +8281,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1430,
+                  0,
                   900,
-                  1750,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8445,9 +8325,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1468,
+                  0,
                   900,
-                  1788,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8489,9 +8369,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1501,
+                  0,
                   900,
-                  1821,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8533,9 +8413,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1530,
+                  0,
                   900,
-                  1850,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8577,9 +8457,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1555,
+                  0,
                   900,
-                  1875,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8621,9 +8501,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1574,
+                  0,
                   900,
-                  1894,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8665,9 +8545,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1588,
+                  0,
                   900,
-                  1908,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8709,9 +8589,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1597,
+                  0,
                   900,
-                  1917,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8753,9 +8633,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8797,9 +8677,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8841,9 +8721,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8885,9 +8765,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8929,9 +8809,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -8973,9 +8853,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9017,9 +8897,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9061,9 +8941,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9105,9 +8985,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9149,9 +9029,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9193,9 +9073,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9237,9 +9117,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9281,9 +9161,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9325,9 +9205,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9369,9 +9249,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9413,9 +9293,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9457,9 +9337,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9501,9 +9381,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9545,9 +9425,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9589,9 +9469,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9633,9 +9513,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9677,9 +9557,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9721,9 +9601,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9765,9 +9645,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9809,9 +9689,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9853,9 +9733,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9897,9 +9777,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9941,9 +9821,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -9985,9 +9865,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10029,9 +9909,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10073,9 +9953,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10117,9 +9997,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10161,9 +10041,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10205,9 +10085,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10249,9 +10129,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10293,9 +10173,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10337,9 +10217,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10381,9 +10261,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10425,9 +10305,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10469,9 +10349,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10513,9 +10393,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10557,9 +10437,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10601,9 +10481,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10645,9 +10525,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10689,9 +10569,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10733,9 +10613,9 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  1600,
+                  0,
                   900,
-                  1920,
+                  320,
                   1080
                 ],
                 "role": "Chrome_WidgetWin_1",
@@ -10871,10 +10751,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  112,
-                  100,
-                  432,
-                  280
+                  99,
+                  108,
+                  419,
+                  288
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -22049,10 +21929,10 @@
               "pip": {
                 "app_id": "chrome.exe",
                 "rect": [
-                  100,
-                  80,
-                  300,
-                  220
+                  98,
+                  78,
+                  298,
+                  218
                 ],
                 "role": "Chrome_WidgetWin_1",
                 "window_id": "pip-handle"
@@ -22817,9 +22697,15 @@
     ]
   },
   "metadata": {
-    "generated_by": "tools/export_reference.py",
-    "source": "/home/deffie/schiva-adaptive",
-    "source_head": "ff9c1e670c9dbb0eacb33813a049d336250ce75b",
-    "version": "0.3.0"
-  }
+      "generated_by": "tools/export_reference.py",
+      "source": "/home/deffie/schiva-adaptive",
+      "source_head": "ff9c1e670c9dbb0eacb33813a049d336250ce75b",
+      "version": "0.3.0",
+      "controller_reference_revision": {
+        "generated_by": "tools/update_motion_reference.py",
+        "native_change": "cursor escape uses monotonic clearance while the pointer threatens the source or current PiP",
+        "python_reference": "all non-controller math, geometry, activity, and visual fixture sections remain the immutable Python reference",
+        "replay_rule": "PiP poses following a prior emitted command or maintaining the prior pose were replayed; deliberate manual changes, cursor positions, buttons, and timing were preserved"
+      }
+    }
 }

@@ -276,6 +276,75 @@ void test_geometry_helpers() {
     CHECK(!schiva::point_near_rect({20, 20}, bounds, 20));
 }
 
+void test_visual_capture_proximity() {
+    const schiva::Rect pip{100, 50, 300, 250};
+    const auto eligible = [&pip](
+                              schiva::Point cursor,
+                              bool include_visual = true,
+                              bool paused = false,
+                              bool motion_active = false,
+                              bool mouse_buttons_down = false) {
+        return schiva::visual_capture_eligible(
+            include_visual,
+            paused,
+            motion_active,
+            mouse_buttons_down,
+            pip,
+            cursor);
+    };
+
+    const struct {
+        schiva::Point cursor;
+        bool expected;
+    } cases[] = {
+        {{200, 150}, false},  // over PiP
+        {{80, 150}, false},   // 20 px left
+        {{79, 150}, true},    // 21 px left
+        {{320, 150}, false},  // 20 px right
+        {{321, 150}, true},   // 21 px right
+        {{200, 30}, false},   // 20 px above
+        {{200, 29}, true},    // 21 px above
+        {{200, 270}, false},  // 20 px below
+        {{200, 271}, true},   // 21 px below
+        {{80, 30}, false},    // corner of expanded control region
+        {{79, 29}, true},     // outside expanded corner
+        {{340, 150}, true},   // 40 px right
+        {{400, 150}, true},   // 100 px right
+        {{450, 150}, true},   // 150 px right
+        {{1000, 1000}, true}, // far away
+    };
+    for (const auto& item : cases) {
+        CHECK(eligible(item.cursor) == item.expected);
+    }
+
+    CHECK(!eligible({200, 150}, false));
+    CHECK(!eligible({200, 150}, true, true));
+    CHECK(!eligible({200, 150}, true, false, true));
+    CHECK(!eligible({200, 150}, true, false, false, true));
+
+    const schiva::Rect negative_pip{-1920, -1080, -1600, -900};
+    CHECK(!schiva::visual_capture_eligible(
+        true, false, false, false, negative_pip, {-1580, -990}));
+    CHECK(schiva::visual_capture_eligible(
+        true, false, false, false, negative_pip, {-1579, -990}));
+    CHECK(schiva::visual_capture_eligible(
+        true, false, false, false, negative_pip, {-1500, -800}));
+
+    const schiva::Rect scaled_pip{3840, 2160, 4480, 2520};
+    CHECK(!schiva::visual_capture_eligible(
+        true, false, false, false, scaled_pip, {4500, 2340}));
+    CHECK(schiva::visual_capture_eligible(
+        true, false, false, false, scaled_pip, {4501, 2340}));
+    CHECK(schiva::visual_capture_eligible(
+        true, false, false, false, scaled_pip, {4700, 2340}));
+
+    CHECK(schiva::visual_capture_eligible(
+        true, false, false, false, std::nullopt, {200, 150}));
+    CHECK(schiva::visual_capture_eligible(
+        true, false, false, false, schiva::Rect{300, 200, 100, 100},
+        {200, 150}));
+}
+
 void test_motion_geometry_guard() {
     const schiva::Rect expected{600, 200, 1000, 425};
     int apply_count = 0;
@@ -300,7 +369,7 @@ void test_motion_geometry_guard() {
 }
 
 void test_scheduler_and_status() {
-    CHECK(schiva::kVersion == "0.4.0-alpha.4");
+    CHECK(schiva::kVersion == "0.4.0-alpha.5");
     CHECK(std::abs(schiva::target_period(true, false) - 1.0 / 120.0) <
           1.0e-12);
     CHECK(std::abs(schiva::target_period(false, false) - 1.0 / 60.0) <
@@ -675,6 +744,7 @@ int main() {
     test_title_and_window_identity();
     test_official_chromium_titles();
     test_geometry_helpers();
+    test_visual_capture_proximity();
     test_motion_geometry_guard();
     test_scheduler_and_status();
     test_capture_mailbox();

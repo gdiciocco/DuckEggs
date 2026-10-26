@@ -40,7 +40,6 @@ constexpr int kCaptureWidth = 64;
 constexpr int kCaptureHeight = 36;
 constexpr double kIdentityScanSeconds = 0.75;
 constexpr double kMotionScanSeconds = 0.20;
-constexpr double kVisualNearPipPixels = 160.0;
 constexpr int kInnerMargin = 20;
 constexpr int kSafetyMargin = 28;
 constexpr int kManualCleanupAttempts = 3;
@@ -991,13 +990,17 @@ public:
         last_input_age_ = age;
 
         std::optional<VisualFrame> visual;
-        const bool visual_near_pip =
-            candidate.has_value() &&
-            point_near_rect(
-                cursor, candidate->rect,
-                static_cast<int>(kVisualNearPipPixels));
-        if (include_visual && !paused_ && !motion_active() && !buttons &&
-            !visual_near_pip) {
+        const std::optional<Rect> pip_rect =
+            candidate.has_value()
+                ? std::optional<Rect>{candidate->rect}
+                : std::nullopt;
+        if (visual_capture_eligible(
+                include_visual,
+                paused_,
+                motion_active(),
+                buttons,
+                pip_rect,
+                cursor)) {
             capture_worker_.set_suppressed(false);
             const auto [generation, masks] = prepare_capture(
                 work, records, candidate, foreground_record);
