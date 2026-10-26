@@ -63,6 +63,9 @@ The executable lives at
 capabilities without capturing the screen or prompting for permission. GUI
 runtime options such as `--start-paused`, `--no-visual`, `--duration`, and
 `--data-dir` are available for controlled testing.
+`--no-gui` does not publish the main-thread display geometry cache, so status
+and capability checks can run but window movement fails closed. Use the GUI
+for active window management.
 
 ## Verification boundary
 

@@ -384,11 +384,9 @@ install(
 install(
     FILES
         docs/DEVELOPING.md
+        docs/MACOS.md
         docs/RELEASE-NOTES-v0.4.0-alpha.6.md
     DESTINATION docs)
-if(APPLE)
-    install(FILES docs/MACOS.md DESTINATION docs)
-endif()
 install(
     FILES resources/duckeggs-logo-256.png
     DESTINATION resources)

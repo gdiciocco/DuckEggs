@@ -79,7 +79,7 @@ Learning data stays on your computer. DuckEggs does not save screenshots,
 window titles, URLs, cursor coordinates, or key contents. Visual frames are
 small, processed in memory, and discarded. The app collects no analytics.
 
-Windows data is stored in `%LOCALAPPDATA%\\DuckEggs`. macOS data is stored in
+Windows data is stored in `%LOCALAPPDATA%\DuckEggs`. macOS data is stored in
 `~/Library/Application Support/DuckEggs`. To reset learning, exit DuckEggs and
 remove that platform's data folder.
 
