@@ -53,6 +53,43 @@ std::vector<Point> compact(const std::vector<Point>& points) {
     return result;
 }
 
+bool segment_has_nondecreasing_pointer_clearance(
+    const Point& start, const Point& end, int width, int height,
+    const Point& cursor) {
+    const double start_x = static_cast<double>(start.x);
+    const double start_y = static_cast<double>(start.y);
+    const double cursor_x = static_cast<double>(cursor.x);
+    const double cursor_y = static_cast<double>(cursor.y);
+    const double dx =
+        static_cast<double>(end.x) - static_cast<double>(start.x);
+    const double dy =
+        static_cast<double>(end.y) - static_cast<double>(start.y);
+
+    // The squared distance derivative is twice the sum of gap times
+    // signed gap velocity. Negative-velocity gaps only shrink in magnitude,
+    // so a nonnegative initial sum bounds the derivative for the whole
+    // segment.
+    double gap_x = 0.0;
+    double proof = 0.0;
+    if (cursor_x < start_x) {
+        gap_x = start_x - cursor_x;
+        proof += gap_x * dx;
+    } else if (cursor_x > start_x + width) {
+        gap_x = cursor_x - (start_x + width);
+        proof -= gap_x * dx;
+    }
+
+    double gap_y = 0.0;
+    if (cursor_y < start_y) {
+        gap_y = start_y - cursor_y;
+        proof += gap_y * dy;
+    } else if (cursor_y > start_y + height) {
+        gap_y = cursor_y - (start_y + height);
+        proof -= gap_y * dy;
+    }
+    return (gap_x > 0.0 || gap_y > 0.0) && proof >= 0.0;
+}
+
 bool route_preserves_pointer_clearance(
     const Point& start, const std::vector<Point>& route, int width,
     int height, const Point& cursor, double tolerance = 1.0) {
@@ -215,24 +252,40 @@ std::vector<Rect> candidate_rects(
 }
 
 bool segment_is_safe(const Point& start, const Point& end, int width,
-                     int height, const Point& cursor, int safety_margin) {
+                     int height, const Point& cursor, int safety_margin,
+                     bool allow_clearance_recovery) {
     const Rect forbidden =
         forbidden_top_left(width, height, cursor, safety_margin);
     const bool x_entry = segment_hits_forbidden(
         start.x, end.x, forbidden.left, forbidden.right);
     const bool y_entry = segment_hits_forbidden(
         start.y, end.y, forbidden.top, forbidden.bottom);
-    return !(x_entry && y_entry);
+    if (!(x_entry && y_entry)) {
+        return true;
+    }
+    if (!allow_clearance_recovery) {
+        return false;
+    }
+    const Rect start_rect{
+        start.x, start.y, start.x + width, start.y + height};
+    const double start_clearance =
+        distance_to_rect(start_rect, cursor);
+    return start_clearance > 0.0 &&
+           contains_point_with_margin(
+               start_rect, cursor, safety_margin - 1) &&
+           segment_has_nondecreasing_pointer_clearance(
+               start, end, width, height, cursor);
 }
 
 std::optional<std::vector<Point>> plan_safe_path(
     const Point& start, const Point& target, int width, int height,
     const Point& cursor, int safety_margin,
-    const std::optional<Rect>& work, bool nondecreasing_clearance) {
+    const std::optional<Rect>& work, bool nondecreasing_clearance,
+    bool allow_clearance_recovery) {
     std::vector<std::vector<Point>> routes;
     const bool direct_safe =
         segment_is_safe(start, target, width, height, cursor,
-                        safety_margin);
+                        safety_margin, allow_clearance_recovery);
     const bool direct_preserves_clearance =
         !nondecreasing_clearance ||
         route_preserves_pointer_clearance(
@@ -267,7 +320,8 @@ std::optional<std::vector<Point>> plan_safe_path(
         bool safe = true;
         for (std::size_t index = 1; index < route.size(); ++index) {
             if (!segment_is_safe(route[index - 1], route[index], width,
-                                 height, cursor, safety_margin)) {
+                                 height, cursor, safety_margin,
+                                 allow_clearance_recovery)) {
                 safe = false;
                 break;
             }
@@ -288,7 +342,8 @@ bool route_is_safe(const Point& start,
                    const std::vector<Point>& waypoints, int width, int height,
                    const Point& cursor, int safety_margin,
                    const std::optional<Rect>& work,
-                   bool nondecreasing_clearance) {
+                   bool nondecreasing_clearance,
+                   bool allow_clearance_recovery) {
     Point current = start;
     if (!within_work(current, width, height, work)) {
         return false;
@@ -301,7 +356,8 @@ bool route_is_safe(const Point& start,
     for (const Point& point : waypoints) {
         if (!within_work(point, width, height, work) ||
             !segment_is_safe(current, point, width, height, cursor,
-                             safety_margin)) {
+                             safety_margin,
+                             allow_clearance_recovery)) {
             return false;
         }
         current = point;
@@ -314,9 +370,13 @@ std::optional<Point> first_safe_step(const Point& start,
                                      int height, const Point& cursor,
                                      int safety_margin,
                                      const std::optional<Rect>& work,
-                                     int max_step) {
+                                     int max_step,
+                                     bool nondecreasing_clearance,
+                                     bool allow_clearance_recovery) {
     const auto path = plan_safe_path(start, target, width, height, cursor,
-                                     safety_margin, work);
+                                     safety_margin, work,
+                                     nondecreasing_clearance,
+                                     allow_clearance_recovery);
     if (!path.has_value()) {
         return std::nullopt;
     }
@@ -335,7 +395,10 @@ std::optional<Point> first_safe_step(const Point& start,
         static_cast<int>(python_round(start.x + dx * factor)),
         static_cast<int>(python_round(start.y + dy * factor))};
     if (!segment_is_safe(start, step, width, height, cursor,
-                         safety_margin)) {
+                         safety_margin, allow_clearance_recovery) ||
+        (nondecreasing_clearance &&
+         !route_preserves_pointer_clearance(
+             start, {step}, width, height, cursor))) {
         return std::nullopt;
     }
     return step;

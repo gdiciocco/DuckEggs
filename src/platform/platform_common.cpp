@@ -72,6 +72,52 @@ bool segment_hits_forbidden(double start, double end, double low, double high) {
     return std::max(0.0, entry) < std::min(1.0, exit);
 }
 
+double clearance_to_rect(const Rect& rect, Point point) {
+    const double nearest_x = std::clamp(
+        static_cast<double>(point.x), static_cast<double>(rect.left),
+        static_cast<double>(rect.right));
+    const double nearest_y = std::clamp(
+        static_cast<double>(point.y), static_cast<double>(rect.top),
+        static_cast<double>(rect.bottom));
+    return std::hypot(point.x - nearest_x, point.y - nearest_y);
+}
+
+bool segment_has_nondecreasing_pointer_clearance(
+    Point start, Point end, MotionSize size, Point cursor) {
+    const double start_x = static_cast<double>(start.x);
+    const double start_y = static_cast<double>(start.y);
+    const double cursor_x = static_cast<double>(cursor.x);
+    const double cursor_y = static_cast<double>(cursor.y);
+    const double dx =
+        static_cast<double>(end.x) - static_cast<double>(start.x);
+    const double dy =
+        static_cast<double>(end.y) - static_cast<double>(start.y);
+
+    // The squared distance derivative is twice the sum of gap times
+    // signed gap velocity. Negative-velocity gaps only shrink in magnitude,
+    // so a nonnegative initial sum bounds the derivative for the whole
+    // segment.
+    double gap_x = 0.0;
+    double proof = 0.0;
+    if (cursor_x < start_x) {
+        gap_x = start_x - cursor_x;
+        proof += gap_x * dx;
+    } else if (cursor_x > start_x + size.width) {
+        gap_x = cursor_x - (start_x + size.width);
+        proof -= gap_x * dx;
+    }
+
+    double gap_y = 0.0;
+    if (cursor_y < start_y) {
+        gap_y = start_y - cursor_y;
+        proof += gap_y * dy;
+    } else if (cursor_y > start_y + size.height) {
+        gap_y = cursor_y - (start_y + size.height);
+        proof -= gap_y * dy;
+    }
+    return (gap_x > 0.0 || gap_y > 0.0) && proof >= 0.0;
+}
+
 constexpr int kVisualControlMarginPixels = 20;
 
 }  // namespace
@@ -317,7 +363,8 @@ bool segment_is_safe(
     Point end,
     MotionSize size,
     Point cursor,
-    int safety_margin) {
+    int safety_margin,
+    bool allow_clearance_recovery) {
     const double left = static_cast<double>(cursor.x) - safety_margin - size.width;
     const double right = static_cast<double>(cursor.x) + safety_margin;
     const double top = static_cast<double>(cursor.y) - safety_margin - size.height;
@@ -326,7 +373,29 @@ bool segment_is_safe(
         static_cast<double>(start.x), static_cast<double>(end.x), left, right);
     const bool y_entry = segment_hits_forbidden(
         static_cast<double>(start.y), static_cast<double>(end.y), top, bottom);
-    return !(x_entry && y_entry);
+    if (!(x_entry && y_entry)) {
+        return true;
+    }
+    if (!allow_clearance_recovery) {
+        return false;
+    }
+    const Rect start_rect{
+        start.x, start.y, start.x + size.width, start.y + size.height};
+    const double start_clearance =
+        clearance_to_rect(start_rect, cursor);
+    const std::int64_t dx = std::max(
+        {static_cast<std::int64_t>(start_rect.left) - cursor.x,
+         std::int64_t{0},
+         static_cast<std::int64_t>(cursor.x) - start_rect.right});
+    const std::int64_t dy = std::max(
+        {static_cast<std::int64_t>(start_rect.top) - cursor.y,
+         std::int64_t{0},
+         static_cast<std::int64_t>(cursor.y) - start_rect.bottom});
+    return start_clearance > 0.0 &&
+           dx < safety_margin &&
+           dy < safety_margin &&
+           segment_has_nondecreasing_pointer_clearance(
+               start, end, size, cursor);
 }
 
 bool point_near_rect(Point point, const Rect& rect, int margin) {

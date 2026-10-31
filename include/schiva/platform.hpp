@@ -129,17 +129,19 @@ inline bool motion_rect_matches(
 
 // Native-side duplicate of the small core safety predicate. It avoids a
 // dependency on unagreed core internals while preserving the same corridor
-// test used by the controller.
+// test used by the controller. Recovery is opt-in and permits only an already
+// close source to move with nondecreasing full-rectangle pointer clearance.
 bool segment_is_safe(
     Point start,
     Point end,
     MotionSize size,
     Point cursor,
-    int safety_margin = 28);
+    int safety_margin = 28,
+    bool allow_clearance_recovery = false);
 bool point_near_rect(Point point, const Rect& rect, int margin);
 // Visual capture masks handle the PiP itself. Suppress capture only while the
-// cursor is over its controls, including the same 20 px inner margin used by
-// movement, so nearby content remains observable.
+// cursor is in the 20 px band around its controls, so nearby content remains
+// observable. Pointer movement uses the actual rectangle instead.
 bool visual_capture_eligible(
     bool include_visual,
     bool paused,

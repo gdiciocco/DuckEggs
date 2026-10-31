@@ -216,7 +216,7 @@ if(APPLE)
     set(MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.gdiciocco.DuckEggs")
     set(MACOSX_BUNDLE_BUNDLE_NAME "DuckEggs")
     set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
-    set(MACOSX_BUNDLE_BUNDLE_VERSION "6")
+    set(MACOSX_BUNDLE_BUNDLE_VERSION "7")
     configure_file(
         resources/macos/Info.plist.in
         "${CMAKE_CURRENT_BINARY_DIR}/DuckEggs-Info.plist"
@@ -385,33 +385,33 @@ install(
     FILES
         docs/DEVELOPING.md
         docs/MACOS.md
-        docs/RELEASE-NOTES-v0.4.0-alpha.6.md
+        docs/RELEASE-NOTES-v0.4.0-alpha.7.md
     DESTINATION docs)
 install(
     FILES resources/duckeggs-logo-256.png
     DESTINATION resources)
 
 set(CPACK_PACKAGE_NAME "DuckEggs")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-alpha.6")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}-alpha.7")
 if(WIN32)
     set(CPACK_PACKAGE_FILE_NAME
-        "DuckEggs-${PROJECT_VERSION}-alpha.6-windows-x64")
+        "DuckEggs-${PROJECT_VERSION}-alpha.7-windows-x64")
 elseif(APPLE)
     if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64;arm64")
         set(CPACK_PACKAGE_FILE_NAME
-            "DuckEggs-${PROJECT_VERSION}-alpha.6-macos-universal")
+            "DuckEggs-${PROJECT_VERSION}-alpha.7-macos-universal")
     else()
         set(CPACK_PACKAGE_FILE_NAME
-            "DuckEggs-${PROJECT_VERSION}-alpha.6-macos-intel")
+            "DuckEggs-${PROJECT_VERSION}-alpha.7-macos-intel")
     endif()
 else()
     set(CPACK_PACKAGE_FILE_NAME
-        "DuckEggs-${PROJECT_VERSION}-alpha.6-linux-core")
+        "DuckEggs-${PROJECT_VERSION}-alpha.7-linux-core")
 endif()
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_SOURCE_GENERATOR "ZIP")
 set(CPACK_SOURCE_PACKAGE_FILE_NAME
-    "DuckEggs-${PROJECT_VERSION}-alpha.6-source")
+    "DuckEggs-${PROJECT_VERSION}-alpha.7-source")
 set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
 set(
     CPACK_SOURCE_IGNORE_FILES

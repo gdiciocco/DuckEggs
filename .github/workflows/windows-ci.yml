@@ -54,7 +54,7 @@ jobs:
         run: |
           ./out/build/macos-universal/DuckEggs.app/Contents/MacOS/DuckEggs --probe > probe.json
           python3 -c 'import json; d=json.load(open("probe.json")); assert d["supported"] is True; assert d["capture_performed"] is False'
-          python3 -c 'import plistlib; p=plistlib.load(open("out/build/macos-universal/DuckEggs.app/Contents/Info.plist","rb")); assert p["CFBundleIdentifier"] == "io.github.gdiciocco.DuckEggs"; assert p["CFBundleExecutable"] == "DuckEggs"; assert p["CFBundleVersion"] == "6"; assert p["CFBundleShortVersionString"] == "0.4.0"; assert p["LSMinimumSystemVersion"] == "10.15"'
+          python3 -c 'import plistlib; p=plistlib.load(open("out/build/macos-universal/DuckEggs.app/Contents/Info.plist","rb")); assert p["CFBundleIdentifier"] == "io.github.gdiciocco.DuckEggs"; assert p["CFBundleExecutable"] == "DuckEggs"; assert p["CFBundleVersion"] == "7"; assert p["CFBundleShortVersionString"] == "0.4.0"; assert p["LSMinimumSystemVersion"] == "10.15"'
       - name: Verify universal architectures
         run: |
           app="out/build/macos-universal/DuckEggs.app/Contents/MacOS/DuckEggs"
@@ -120,7 +120,7 @@ jobs:
         run: |
           ./out/build/macos-intel/DuckEggs.app/Contents/MacOS/DuckEggs --probe > probe.json
           python3 -c 'import json; d=json.load(open("probe.json")); assert d["supported"] is True; assert d["capture_performed"] is False'
-          python3 -c 'import plistlib; p=plistlib.load(open("out/build/macos-intel/DuckEggs.app/Contents/Info.plist","rb")); assert p["CFBundleIdentifier"] == "io.github.gdiciocco.DuckEggs"; assert p["CFBundleExecutable"] == "DuckEggs"; assert p["CFBundleVersion"] == "6"; assert p["CFBundleShortVersionString"] == "0.4.0"; assert p["LSMinimumSystemVersion"] == "10.15"'
+          python3 -c 'import plistlib; p=plistlib.load(open("out/build/macos-intel/DuckEggs.app/Contents/Info.plist","rb")); assert p["CFBundleIdentifier"] == "io.github.gdiciocco.DuckEggs"; assert p["CFBundleExecutable"] == "DuckEggs"; assert p["CFBundleVersion"] == "7"; assert p["CFBundleShortVersionString"] == "0.4.0"; assert p["LSMinimumSystemVersion"] == "10.15"'
       - name: Verify Intel architecture
         run: |
           app="out/build/macos-intel/DuckEggs.app/Contents/MacOS/DuckEggs"

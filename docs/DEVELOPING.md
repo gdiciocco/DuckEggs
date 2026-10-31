@@ -1,4 +1,4 @@
-# Developing DuckEggs 0.4.0-alpha.6
+# Developing DuckEggs 0.4.0-alpha.7
 
 This document preserves the detailed engineering, build, and verification
 information for DuckEggs. See the [root README](../README.md) for the public
@@ -298,7 +298,7 @@ cpack -C Release
 ```
 
 The Windows artifact is
-`DuckEggs-0.4.0-alpha.6-windows-x64.zip`. On macOS, configure and package the
+`DuckEggs-0.4.0-alpha.7-windows-x64.zip`. On macOS, configure and package the
 universal app with:
 
 ```sh

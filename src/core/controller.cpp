@@ -448,8 +448,7 @@ struct Controller::Impl {
             return;
         }
         if (detail::contains_point_with_margin(
-                observation.pip->rect, observation.cursor,
-                detail::kInnerMargin)) {
+                observation.pip->rect, observation.cursor)) {
             inside = true;
             exit_grace_until = -1.0;
             near_since.reset();
@@ -508,7 +507,7 @@ struct Controller::Impl {
                 : observation.work_area;
         const bool inside_pip_control =
             detail::contains_point_with_margin(
-                pip_rect, observation.cursor, detail::kInnerMargin);
+                pip_rect, observation.cursor);
         const bool recent_input =
             observation.input_active &&
             std::isfinite(observation.input_age) &&
@@ -586,6 +585,12 @@ struct Controller::Impl {
             now < retry_after;
         const bool near = detail::contains_point_with_margin(
             rect, observation.cursor, detail::kNearMargin);
+        // Pixel coordinates make margin - 1 equivalent to the open band;
+        // exactly 28 px is already outside the recovery corridor.
+        const bool close_approach =
+            detail::contains_point_with_margin(
+                rect, observation.cursor,
+                detail::kSafetyMargin - 1);
         if (near && !blocked) {
             if (!near_since.has_value()) {
                 near_since = now;
@@ -597,6 +602,9 @@ struct Controller::Impl {
             now < manual_until || now < cooldown_until ||
             now < retry_after) {
             return {};
+        }
+        if (close_approach) {
+            return "cursor_near";
         }
         if (near_since.has_value() &&
             now - *near_since >= kTriggerSeconds) {
@@ -647,7 +655,7 @@ struct Controller::Impl {
                                     {target.left, target.top}, width,
                                     height, observation.cursor,
                                     detail::kSafetyMargin,
-                                    observation.work_area, true)
+                                    observation.work_area, true, true)
                                     .has_value();
                     }),
                 candidates.end());
@@ -657,7 +665,8 @@ struct Controller::Impl {
             }
         }
         candidates = detail::eligible_placement_targets(
-            candidates, observation);
+            candidates, observation, detail::kClearanceGoal,
+            detail::kMinFallbackClearance, pointer_escape);
         if (candidates.empty()) {
             retry_after = now + kRetrySeconds;
             return std::nullopt;
@@ -871,19 +880,23 @@ struct Controller::Impl {
                      detail::contains_point_with_margin(
                          motion->source, observation.cursor,
                          detail::kNearMargin));
+                const bool allow_clearance_recovery =
+                    motion->pointer_escape;
                 std::vector<Point> remaining =
                     motion->trajectory.remaining_waypoints();
                 if (!detail::route_is_safe(
                         current_point, remaining, width, height,
                         observation.cursor, detail::kSafetyMargin,
                         observation.work_area,
-                        pointer_threatens_escape)) {
+                        pointer_threatens_escape,
+                        allow_clearance_recovery)) {
                     const auto path = detail::plan_safe_path(
                         current_point,
                         {motion->target.left, motion->target.top}, width,
                         height, observation.cursor, detail::kSafetyMargin,
                         observation.work_area,
-                        pointer_threatens_escape);
+                        pointer_threatens_escape,
+                        allow_clearance_recovery);
                     if (!path.has_value()) {
                         cancel_motion_for_conflict(now);
                         return decision(
@@ -899,19 +912,23 @@ struct Controller::Impl {
                 motion->previous_emitted = motion->last_emitted;
                 Point next_point =
                     motion->trajectory.advance(elapsed);
-                if (!detail::segment_is_safe(
-                        current_point, next_point, width, height,
-                        observation.cursor, detail::kSafetyMargin)) {
+                const auto integer_step_is_safe =
+                    [&](const Point& point) {
+                        return detail::route_is_safe(
+                            current_point, {point}, width, height,
+                            observation.cursor, detail::kSafetyMargin,
+                            observation.work_area,
+                            pointer_threatens_escape,
+                            allow_clearance_recovery);
+                    };
+                if (!integer_step_is_safe(next_point)) {
                     const std::optional<Point> corner =
                         remaining.empty()
                             ? std::nullopt
                             : std::optional<Point>(
                                   remaining.front());
                     if (!corner.has_value() ||
-                        !detail::segment_is_safe(
-                            current_point, *corner, width, height,
-                            observation.cursor,
-                            detail::kSafetyMargin)) {
+                        !integer_step_is_safe(*corner)) {
                         cancel_motion_for_conflict(now);
                         return decision(
                             "cursor_conflict", std::nullopt,
@@ -936,8 +953,7 @@ struct Controller::Impl {
                 return decision("mouse_button_hold");
             }
             if (detail::contains_point_with_margin(
-                    observation.pip->rect, observation.cursor,
-                    detail::kInnerMargin)) {
+                    observation.pip->rect, observation.cursor)) {
                 return decision("pointer_over_pip");
             }
             if (now < exit_grace_until) {
@@ -975,7 +991,7 @@ struct Controller::Impl {
             {target.left, target.top}, observation.pip->rect.width(),
             observation.pip->rect.height(), observation.cursor,
             detail::kSafetyMargin, observation.work_area,
-            reason == "cursor_near");
+            reason == "cursor_near", reason == "cursor_near");
         if (!path.has_value()) {
             retry_after = now + kRetrySeconds;
             return decision("no_safe_target", std::nullopt,

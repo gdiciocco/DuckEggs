@@ -1759,6 +1759,296 @@ void test_cursor_escape_clearance_regressions() {
     }
 }
 
+void test_pointer_approach_and_recovery() {
+    current_test = "pointer_approach_and_recovery";
+    TempDirectory temp;
+    const schiva::Point middle{
+        kPip.left + kPip.width() / 2,
+        kPip.top + kPip.height() / 2};
+    const auto below = [&](int distance) {
+        return schiva::Point{middle.x, kPip.bottom + distance};
+    };
+    int scenario = 0;
+    const auto immediate_decision = [&](schiva::Point cursor) {
+        schiva::LearningStore store(
+            temp.file("approach-" + std::to_string(scenario++) +
+                      ".sqlite3"));
+        schiva::Controller controller(store);
+        const schiva::Decision decision =
+            controller.tick(0.0, observation(kPip, cursor));
+        controller.close();
+        store.close();
+        return decision;
+    };
+    const auto triggers_immediately = [&](schiva::Point cursor) {
+        const schiva::Decision decision = immediate_decision(cursor);
+        return decision.reason.rfind("cursor_near", 0) == 0 &&
+               decision.move_to.has_value();
+    };
+
+    for (const int distance : {1, 5, 19, 20, 21, 27}) {
+        CHECK(triggers_immediately(below(distance)));
+    }
+    const std::vector<schiva::Point> matched_edges = {
+        {middle.x, kPip.top - 19},
+        {kPip.left - 19, middle.y},
+        {kPip.right + 19, middle.y},
+        {kPip.left - 19, kPip.top - 19},
+        {kPip.right + 20, kPip.bottom + 20},
+    };
+    for (const schiva::Point cursor : matched_edges) {
+        CHECK(triggers_immediately(cursor));
+    }
+
+    for (const int distance : {28, 29}) {
+        schiva::LearningStore store(
+            temp.file("dwell-" + std::to_string(distance) + ".sqlite3"));
+        schiva::Controller controller(store);
+        const schiva::Decision before_dwell =
+            controller.tick(0.0, observation(kPip, below(distance)));
+        CHECK(!before_dwell.move_to.has_value());
+        const schiva::Decision before_trigger =
+            controller.tick(0.034, observation(kPip, below(distance)));
+        CHECK(!before_trigger.move_to.has_value());
+        const schiva::Decision after_dwell =
+            controller.tick(0.035, observation(kPip, below(distance)));
+        CHECK(after_dwell.reason.rfind("cursor_near", 0) == 0);
+        CHECK(after_dwell.move_to.has_value());
+        controller.close();
+        store.close();
+    }
+
+    const auto escapes_static_pointer = [&](schiva::Point cursor,
+                                            const std::string& name) {
+        schiva::LearningStore store(
+            temp.file("static-" + name + "-" +
+                      std::to_string(scenario++) + ".sqlite3"));
+        schiva::Controller controller(store);
+        schiva::Decision decision =
+            controller.tick(0.0, observation(kPip, cursor));
+        double now = 0.0;
+        if (!decision.move_to.has_value()) {
+            now = 0.035;
+            decision = controller.tick(now, observation(kPip, cursor));
+        }
+        CHECK(decision.reason.rfind("cursor_near", 0) == 0);
+        CHECK(decision.move_to.has_value());
+        CHECK(decision.recommendation.has_value());
+        const auto target = decision.recommendation;
+
+        schiva::Rect applied = kPip;
+        double previous_clearance =
+            schiva::detail::distance_to_rect(applied, cursor);
+        int steps = 0;
+        while (decision.move_to.has_value() && now < 2.0) {
+            const bool recovery_source =
+                previous_clearance > 0.0 &&
+                schiva::detail::contains_point_with_margin(
+                    applied, cursor,
+                    schiva::detail::kSafetyMargin - 1);
+            applied = applied.moved_to(
+                decision.move_to->x, decision.move_to->y);
+            const double clearance =
+                schiva::detail::distance_to_rect(applied, cursor);
+            // Recovery preserves clearance exactly; ordinary routes retain
+            // legacy 1px integer-rounding tolerance.
+            if (recovery_source) {
+                CHECK(clearance + 1.0e-9 >= previous_clearance);
+            } else {
+                CHECK(clearance + 1.0 + 1.0e-9 >= previous_clearance);
+            }
+            previous_clearance = clearance;
+            now += 1.0 / 120.0;
+            decision = controller.tick(
+                now, observation(applied, cursor));
+            ++steps;
+        }
+        CHECK(steps > 0);
+        CHECK(now < 2.0);
+        CHECK(!controller.status()["motion_active"].get<bool>());
+        CHECK(decision.state != "cursor_conflict");
+        CHECK(decision.state != "no_safe_target");
+        CHECK(schiva::detail::vacated_fraction(kPip, applied) >=
+              schiva::detail::kClearanceGoal);
+        CHECK(target.has_value() && applied == *target);
+        controller.close();
+        store.close();
+    };
+
+    for (const int distance : {1, 5, 19, 20, 21, 27, 28, 29}) {
+        const std::vector<schiva::Point> cursors = {
+            {middle.x, kPip.top - distance},
+            {middle.x, kPip.bottom + distance},
+            {kPip.left - distance, middle.y},
+            {kPip.right + distance, middle.y},
+        };
+        for (std::size_t side = 0; side < cursors.size(); ++side) {
+            escapes_static_pointer(
+                cursors[side],
+                "edge-" + std::to_string(distance) + "-" +
+                    std::to_string(side));
+        }
+    }
+    for (const int distance : {19, 20, 27}) {
+        const std::vector<schiva::Point> cursors = {
+            {kPip.left - distance, kPip.top - distance},
+            {kPip.right + distance, kPip.top - distance},
+            {kPip.left - distance, kPip.bottom + distance},
+            {kPip.right + distance, kPip.bottom + distance},
+        };
+        for (std::size_t corner = 0; corner < cursors.size(); ++corner) {
+            escapes_static_pointer(
+                cursors[corner],
+                "corner-" + std::to_string(distance) + "-" +
+                    std::to_string(corner));
+        }
+    }
+
+    {
+        schiva::LearningStore store(temp.file("fast-approach.sqlite3"));
+        schiva::Controller controller(store);
+        const schiva::Decision far =
+            controller.tick(0.0, observation(kPip, below(120)));
+        CHECK(!far.move_to.has_value());
+        const schiva::Decision crossed_sample = controller.tick(
+            1.0 / 60.0, observation(kPip, below(19)));
+        CHECK(crossed_sample.reason.rfind("cursor_near", 0) == 0);
+        CHECK(crossed_sample.move_to.has_value());
+        CHECK(schiva::detail::distance_to_rect(
+                  kPip, below(19)) > 0.0);
+        controller.close();
+        store.close();
+    }
+
+    const auto freeze_after_trigger = [&](schiva::Point cursor,
+                                          bool buttons) {
+        schiva::LearningStore store(
+            temp.file("freeze-" + std::to_string(scenario++) +
+                      ".sqlite3"));
+        schiva::Controller controller(store);
+        const schiva::Decision moving =
+            controller.tick(0.0, observation(kPip, below(19)));
+        CHECK(moving.move_to.has_value());
+        const schiva::Decision held = controller.tick(
+            0.01, observation(kPip, cursor, buttons));
+        controller.close();
+        store.close();
+        return held;
+    };
+
+    const schiva::Decision inside =
+        freeze_after_trigger(middle, false);
+    CHECK(inside.state == "pointer_over_pip");
+    CHECK(!inside.move_to.has_value());
+    const schiva::Decision edge =
+        freeze_after_trigger({kPip.left, middle.y}, false);
+    CHECK(edge.state == "pointer_over_pip");
+    CHECK(!edge.move_to.has_value());
+    const schiva::Decision button_hold =
+        freeze_after_trigger(below(19), true);
+    CHECK(button_hold.state == "mouse_button_hold");
+    CHECK(!button_hold.move_to.has_value());
+    const schiva::Decision edge_button_hold =
+        freeze_after_trigger({kPip.left, middle.y}, true);
+    CHECK(edge_button_hold.state == "mouse_button_hold");
+    CHECK(!edge_button_hold.move_to.has_value());
+    const schiva::Decision outside = freeze_after_trigger(below(20), false);
+    CHECK(outside.state == "moving");
+    CHECK(outside.move_to.has_value());
+
+    {
+        const schiva::Rect source{
+            100, 96, 100 + kPip.width(), 96 + kPip.height()};
+        const schiva::Point cursor{middle.x, kPip.bottom + 1};
+        const int width = source.width();
+        const int height = source.height();
+        const schiva::Point start{source.left, source.top};
+        const schiva::Point outward{source.left, 0};
+        const schiva::Point decreasing{source.left, source.top + 2};
+        const schiva::Point sideways{source.left + 40, source.top};
+        const schiva::Point reentering{
+            source.left + 40, source.top + 2};
+        const schiva::Point crossing{source.left, source.top + 180};
+
+        CHECK(!schiva::detail::segment_is_safe(
+            start, outward, width, height, cursor, 28));
+        CHECK(schiva::detail::segment_is_safe(
+            start, outward, width, height, cursor, 28, true));
+        CHECK(schiva::detail::segment_is_safe(
+            start, sideways, width, height, cursor, 28, true));
+        CHECK(!schiva::detail::segment_is_safe(
+            start, decreasing, width, height, cursor, 28, true));
+        CHECK(!schiva::detail::segment_is_safe(
+            sideways, reentering, width, height, cursor, 28, true));
+        CHECK(!schiva::detail::segment_is_safe(
+            start, crossing, width, height, cursor, 28, true));
+        CHECK(!schiva::detail::plan_safe_path(
+                   start, {outward.x, outward.y}, width, height, cursor,
+                   28, kWork, true)
+                   .has_value());
+        const auto recovered = schiva::detail::plan_safe_path(
+            start, {outward.x, outward.y}, width, height, cursor,
+            28, kWork, true, true);
+        CHECK(recovered.has_value());
+        CHECK(!schiva::detail::first_safe_step(
+                   start, outward, width, height, cursor, 28, kWork,
+                   schiva::detail::kMaxStepPixels, true, false)
+                   .has_value());
+        CHECK(schiva::detail::first_safe_step(
+                  start, outward, width, height, cursor, 28, kWork,
+                  schiva::detail::kMaxStepPixels, true, true)
+                  .has_value());
+        if (recovered.has_value()) {
+            CHECK(schiva::detail::route_is_safe(
+                start,
+                std::vector<schiva::Point>(
+                    recovered->begin() + 1, recovered->end()),
+                width, height, cursor, 28, kWork, true, true));
+        }
+
+        const schiva::Point boundary_cursor{cursor.x, 500};
+        const int boundary_top = boundary_cursor.y - 28 - height;
+        const schiva::Point boundary{source.left, boundary_top};
+        const schiva::Point boundary_out{
+            source.left, boundary_top - 100};
+        CHECK(schiva::detail::segment_is_safe(
+            boundary, boundary_out, width, height, boundary_cursor, 28));
+
+        const schiva::Rect corner_source{
+            kPip.left, kPip.top, kPip.right, kPip.bottom};
+        const schiva::Point corner_cursor{
+            corner_source.right + 20, corner_source.bottom + 20};
+        const schiva::Point corner_start{
+            corner_source.left, corner_source.top};
+        const schiva::Point corner_outward{0, 0};
+        CHECK(!schiva::detail::segment_is_safe(
+            corner_start, corner_outward, corner_source.width(),
+            corner_source.height(), corner_cursor, 28));
+        CHECK(schiva::detail::segment_is_safe(
+            corner_start, corner_outward, corner_source.width(),
+            corner_source.height(), corner_cursor, 28, true));
+
+        // A five-pixel gap shrinking to four must reject exactly.
+        CHECK(!schiva::detail::segment_is_safe(
+            {0, 0}, {1, 0}, 20, 10, {25, 5}, 28, true));
+        // Exactly 28 px is outside the strict recovery source interior.
+        CHECK(!schiva::detail::segment_is_safe(
+            {0, 0}, {1, 0}, 20, 10, {48, 5}, 28, true));
+        CHECK(!schiva::detail::segment_is_safe(
+            {0, 0}, {-1, -1}, 20, 10, {40, 30}, 28));
+        CHECK(schiva::detail::segment_is_safe(
+            {0, 0}, {-1, -1}, 20, 10, {40, 30}, 28, true));
+        // Rounded 1 px samples miss this segment's initial decline.
+        CHECK(!schiva::detail::segment_is_safe(
+            {0, 0}, {100, -99}, 20, 10, {21, 11}, 28, true));
+        // The source is outside the corridor even though Euclid grows.
+        CHECK(!schiva::detail::segment_is_safe(
+            {0, 0}, {2, -10}, 20, 10, {49, 30}, 28));
+        CHECK(!schiva::detail::segment_is_safe(
+            {0, 0}, {2, -10}, 20, 10, {49, 30}, 28, true));
+    }
+}
+
 void test_content_transition_preserves_committed_escape() {
     current_test = "content_transition_preserves_committed_escape";
     TempDirectory temp;
@@ -2262,6 +2552,8 @@ int main() {
          test_content_transition_censors_pending_outcome},
         {"cursor_escape_clearance_regressions",
          test_cursor_escape_clearance_regressions},
+        {"pointer_approach_and_recovery",
+         test_pointer_approach_and_recovery},
         {"content_transition_preserves_committed_escape",
          test_content_transition_preserves_committed_escape},
         {"localized_visual_survives_content_adaptation",

@@ -128,6 +128,18 @@ collision checks, hover/button holds, helper exclusions, and manual corrections
 remain unchanged. Sustained-visual placement retains its existing route and
 clearance fallback behavior.
 
+PiP control hover uses the actual window rectangle, including its boundary,
+with no outside slop. The separate 20 px visual-capture mask remains unchanged.
+An outside approach closer than the 28 px safety corridor triggers immediately;
+approaches farther away retain the short dwell. If the pointer is already
+inside that corridor when movement starts, cursor escape may use an opt-in
+recovery route only when continuous full-rectangle pointer clearance is
+nondecreasing and the rectangle never covers or crosses the pointer. That
+route remains revalidated until normal 28 px clearance is recovered. Other
+geometry callers keep the strict default. The Windows source observes cursor
+position and buttons, not cursor shape, so the hand-over-link case is
+shape-independent; live pointer behavior has not been hardware-verified here.
+
 Regression coverage uses static content for side, top, bottom, and corner
 approaches with a biased 12-feature pretrained model and manual preference, plus
 a larger PiP in a smaller work area. It applies each emitted position to a fake

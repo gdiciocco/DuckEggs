@@ -13,11 +13,11 @@ gets in the way. Automatic discovery is limited to Chrome Picture-in-Picture;
 Choose Window lets you explicitly select another eligible visible window for
 the current session.
 
-[Download DuckEggs 0.4.0-alpha.6 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.6/DuckEggs-0.4.0-alpha.6-windows-x64.zip) ·
-[Download DuckEggs 0.4.0-alpha.6 for macOS](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.6/DuckEggs-0.4.0-alpha.6-macos-universal.zip)
+[Download DuckEggs 0.4.0-alpha.7 for Windows](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.7/DuckEggs-0.4.0-alpha.7-windows-x64.zip) ·
+[Download DuckEggs 0.4.0-alpha.7 for macOS](https://github.com/gdiciocco/DuckEggs/releases/download/v0.4.0-alpha.7/DuckEggs-0.4.0-alpha.7-macos-universal.zip)
 
 This is an early alpha. See the
-[v0.4.0-alpha.6 release notes](docs/RELEASE-NOTES-v0.4.0-alpha.6.md) for
+[v0.4.0-alpha.7 release notes](docs/RELEASE-NOTES-v0.4.0-alpha.7.md) for
 platform details and verification limits.
 
 ## What it does

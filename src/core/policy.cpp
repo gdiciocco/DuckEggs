@@ -8,7 +8,8 @@ namespace {
 
 std::vector<Rect> geometry_eligible_targets(
     const std::vector<Rect>& candidates,
-    const Observation& observation, bool protect_pointer) {
+    const Observation& observation, bool protect_pointer,
+    bool allow_clearance_recovery) {
     if (!observation.pip.has_value() ||
         observation.work_area.width() <= 0 ||
         observation.work_area.height() <= 0) {
@@ -39,7 +40,9 @@ std::vector<Rect> geometry_eligible_targets(
         }
         if (!first_safe_step(start, {target.left, target.top}, width,
                              height, observation.cursor, kSafetyMargin,
-                             observation.work_area)
+                             observation.work_area, kMaxStepPixels,
+                             allow_clearance_recovery,
+                             allow_clearance_recovery)
                  .has_value()) {
             continue;
         }
@@ -52,15 +55,18 @@ std::vector<Rect> geometry_eligible_targets(
 
 std::vector<Rect> eligible_placement_targets(
     const std::vector<Rect>& candidates, const Observation& observation,
-    double clearance_goal, double minimum_fallback) {
+    double clearance_goal, double minimum_fallback,
+    bool allow_clearance_recovery) {
     if (!observation.pip.has_value()) {
         return {};
     }
     std::vector<Rect> eligible =
-        geometry_eligible_targets(candidates, observation, true);
+        geometry_eligible_targets(candidates, observation, true,
+                                  allow_clearance_recovery);
     if (eligible.empty()) {
         eligible =
-            geometry_eligible_targets(candidates, observation, false);
+            geometry_eligible_targets(candidates, observation, false,
+                                      allow_clearance_recovery);
     }
     if (eligible.empty()) {
         return {};

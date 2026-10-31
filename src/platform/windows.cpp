@@ -40,7 +40,6 @@ constexpr int kCaptureWidth = 64;
 constexpr int kCaptureHeight = 36;
 constexpr double kIdentityScanSeconds = 0.75;
 constexpr double kMotionScanSeconds = 0.20;
-constexpr int kInnerMargin = 20;
 constexpr int kSafetyMargin = 28;
 constexpr int kManualCleanupAttempts = 3;
 constexpr DWORD kMaskProcessQuery = 0x1000;
@@ -1158,7 +1157,7 @@ public:
             fail_motion("mouse-button hold cancelled movement");
             return false;
         }
-        if (point_near_rect(cursor, current, kInnerMargin)) {
+        if (point_near_rect(cursor, current, 0)) {
             fail_motion(
                 "the pointer entered the PiP controls before the move");
             return false;
@@ -1168,7 +1167,8 @@ public:
                 Point{left, top},
                 MotionSize{current.width(), current.height()},
                 cursor,
-                kSafetyMargin)) {
+                kSafetyMargin,
+                true)) {
             fail_motion("the pointer entered the PiP motion corridor");
             return false;
         }

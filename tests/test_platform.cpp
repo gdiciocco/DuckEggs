@@ -274,6 +274,63 @@ void test_geometry_helpers() {
         {500, 200}));
     CHECK(schiva::point_near_rect({100, 100}, bounds, 20));
     CHECK(!schiva::point_near_rect({20, 20}, bounds, 20));
+    CHECK(schiva::point_near_rect({100, 100}, bounds, 0));
+    CHECK(!schiva::point_near_rect({99, 100}, bounds, 0));
+
+    const schiva::MotionSize size{320, 180};
+    const schiva::Point cursor{260, 281};
+    const schiva::Point source{100, 96};
+    const schiva::Point outward{100, 0};
+    const schiva::Point decreasing{100, 98};
+    const schiva::Point sideways{140, 96};
+    const schiva::Point reentering{140, 98};
+    const schiva::Point crossing{100, 276};
+
+    CHECK(!schiva::segment_is_safe(
+        source, outward, size, cursor, 28));
+    CHECK(schiva::segment_is_safe(
+        source, outward, size, cursor, 28, true));
+    CHECK(schiva::segment_is_safe(
+        source, sideways, size, cursor, 28, true));
+    CHECK(!schiva::segment_is_safe(
+        source, decreasing, size, cursor, 28, true));
+    CHECK(!schiva::segment_is_safe(
+        sideways, reentering, size, cursor, 28, true));
+    CHECK(!schiva::segment_is_safe(
+        source, crossing, size, cursor, 28, true));
+
+    const int boundary_top = cursor.y - 28 - size.height;
+    CHECK(schiva::segment_is_safe(
+        {source.x, boundary_top},
+        {source.x, boundary_top - 100},
+        size,
+        cursor,
+        28));
+
+    const schiva::Point corner_cursor{440, 300};
+    CHECK(!schiva::segment_is_safe(
+        source, {0, 0}, size, corner_cursor, 28));
+    CHECK(schiva::segment_is_safe(
+        source, {0, 0}, size, corner_cursor, 28, true));
+
+    // A five-pixel gap shrinking to four must reject exactly.
+    CHECK(!schiva::segment_is_safe(
+        {0, 0}, {1, 0}, {20, 10}, {25, 5}, 28, true));
+    // Exactly 28 px is outside the strict recovery source interior.
+    CHECK(!schiva::segment_is_safe(
+        {0, 0}, {1, 0}, {20, 10}, {48, 5}, 28, true));
+    CHECK(!schiva::segment_is_safe(
+        {0, 0}, {-1, -1}, {20, 10}, {40, 30}, 28));
+    CHECK(schiva::segment_is_safe(
+        {0, 0}, {-1, -1}, {20, 10}, {40, 30}, 28, true));
+    // Rounded 1 px samples miss this segment's initial decline.
+    CHECK(!schiva::segment_is_safe(
+        {0, 0}, {100, -99}, {20, 10}, {21, 11}, 28, true));
+    // The source is outside the corridor even though Euclid grows.
+    CHECK(!schiva::segment_is_safe(
+        {0, 0}, {2, -10}, {20, 10}, {49, 30}, 28));
+    CHECK(!schiva::segment_is_safe(
+        {0, 0}, {2, -10}, {20, 10}, {49, 30}, 28, true));
 }
 
 void test_visual_capture_proximity() {
@@ -369,7 +426,7 @@ void test_motion_geometry_guard() {
 }
 
 void test_scheduler_and_status() {
-    CHECK(schiva::kVersion == "0.4.0-alpha.6");
+    CHECK(schiva::kVersion == "0.4.0-alpha.7");
     CHECK(std::abs(schiva::target_period(true, false) - 1.0 / 120.0) <
           1.0e-12);
     CHECK(std::abs(schiva::target_period(false, false) - 1.0 / 60.0) <

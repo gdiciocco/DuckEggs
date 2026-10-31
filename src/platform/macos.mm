@@ -96,7 +96,6 @@ namespace {
 
 constexpr int kCaptureWidth = 64;
 constexpr int kCaptureHeight = 36;
-constexpr int kInnerMargin = 20;
 constexpr int kSafetyMargin = 28;
 constexpr double kIdentityScanSeconds = 0.30;
 constexpr double kMotionScanSeconds = 0.10;
@@ -1148,12 +1147,12 @@ public:
             stop_motion("mouse-button hold cancelled movement");
             return false;
         }
-        if (point_near_rect(cursor, current->rect, kInnerMargin)) {
+        if (point_near_rect(cursor, current->rect, 0)) {
             stop_motion("the pointer entered the window controls before movement");
             return false;
         }
         if (!segment_is_safe({current->rect.left, current->rect.top}, {left, top},
-                {current->rect.width(), current->rect.height()}, cursor, kSafetyMargin)) {
+                {current->rect.width(), current->rect.height()}, cursor, kSafetyMargin, true)) {
             stop_motion("the pointer entered the window motion corridor");
             return false;
         }
@@ -1184,9 +1183,9 @@ public:
             return false;
         }
         if (!motion_rect_matches(current->rect, latest->rect, 2) ||
-            mouse_buttons_down() || point_near_rect(final_cursor, latest->rect, kInnerMargin) ||
+            mouse_buttons_down() || point_near_rect(final_cursor, latest->rect, 0) ||
             !segment_is_safe({latest->rect.left, latest->rect.top}, {left, top},
-                {latest->rect.width(), latest->rect.height()}, final_cursor, kSafetyMargin)) {
+                {latest->rect.width(), latest->rect.height()}, final_cursor, kSafetyMargin, true)) {
             stop_motion("movement safety changed before applying the position");
             return false;
         }

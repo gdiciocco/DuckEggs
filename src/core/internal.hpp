@@ -43,24 +43,29 @@ std::vector<Rect> candidate_rects(
     const std::optional<Rect>& protected_area = std::nullopt);
 bool segment_is_safe(const Point& start, const Point& end, int width,
                      int height, const Point& cursor,
-                     int safety_margin = kSafetyMargin);
+                     int safety_margin = kSafetyMargin,
+                     bool allow_clearance_recovery = false);
 std::optional<std::vector<Point>> plan_safe_path(
     const Point& start, const Point& target, int width, int height,
     const Point& cursor, int safety_margin = kSafetyMargin,
     const std::optional<Rect>& work = std::nullopt,
-    bool nondecreasing_clearance = false);
+    bool nondecreasing_clearance = false,
+    bool allow_clearance_recovery = false);
 bool route_is_safe(const Point& start,
                    const std::vector<Point>& waypoints, int width, int height,
                    const Point& cursor,
                    int safety_margin = kSafetyMargin,
                    const std::optional<Rect>& work = std::nullopt,
-                   bool nondecreasing_clearance = false);
+                   bool nondecreasing_clearance = false,
+                   bool allow_clearance_recovery = false);
 std::optional<Point> first_safe_step(const Point& start,
                                      const Point& target, int width,
                                      int height, const Point& cursor,
                                      int safety_margin = kSafetyMargin,
                                      const std::optional<Rect>& work = std::nullopt,
-                                     int max_step = kMaxStepPixels);
+                                     int max_step = kMaxStepPixels,
+                                     bool nondecreasing_clearance = false,
+                                     bool allow_clearance_recovery = false);
 std::pair<double, double> normalized_position(const Rect& rect,
                                               const Rect& reference);
 
@@ -348,7 +353,8 @@ struct PlacementScore {
 std::vector<Rect> eligible_placement_targets(
     const std::vector<Rect>& candidates, const Observation& observation,
     double clearance_goal = kClearanceGoal,
-    double minimum_fallback = kMinFallbackClearance);
+    double minimum_fallback = kMinFallbackClearance,
+    bool allow_clearance_recovery = false);
 
 class PlacementScorer {
 public:
