@@ -9,7 +9,7 @@ for the current session.
 ## Install and open
 
 Download the universal ZIP from the
-[alpha.6 release](https://github.com/gdiciocco/DuckEggs/releases/tag/v0.4.0-alpha.6),
+[alpha.7 release](https://github.com/gdiciocco/DuckEggs/releases/tag/v0.4.0-alpha.7),
 extract it, and move `DuckEggs.app` to Applications. The app is ad-hoc signed
 for integrity checks, but it is not signed with an Apple Developer ID and is
 not notarized. On first open, macOS may block it. On supported macOS versions,
